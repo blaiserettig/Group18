@@ -1,17 +1,27 @@
-use crate::parse::{AbstractSyntaxTreeNode, AbstractSyntaxTreeSymbol, BinOpType, Expr};
-use std::collections::HashSet;
+use crate::parse::{AbstractSyntaxTreeNode, AbstractSyntaxTreeSymbol, BinOpType, Expr, Type};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
 
+#[derive(Clone)]
+enum VariableLocation {
+    Global,
+    Local(i32), // offset from rbp
+}
+
 pub struct Generator {
-    declared_vars: HashSet<String>,
+    scopes: Vec<HashMap<String, VariableLocation>>,
+    current_stack_offset: i32,
+    global_vars: HashSet<String>,
 }
 
 impl Generator {
     pub fn new() -> Self {
         Self {
-            declared_vars: HashSet::new(),
+            scopes: vec![HashMap::new()], // Global scope
+            current_stack_offset: 0,
+            global_vars: HashSet::new(),
         }
     }
 
@@ -19,7 +29,7 @@ impl Generator {
         write!(
             writer,
             "{}",
-            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\n\nmainCRTStartup:\n"
+            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\n\nmainCRTStartup:\n"
         )
         .expect("Unable to write to file.");
     }
@@ -31,52 +41,123 @@ impl Generator {
     ) {
         match &ast_root.symbol {
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry => {
-                ast_root
+                // separate FunctionDecs from other statements
+                let functions: Vec<&AbstractSyntaxTreeNode> = ast_root
                     .children
                     .iter()
-                    .map(|child| self.generate_x64(child, writer))
-                    .for_each(drop);
+                    .filter(|child| matches!(child.symbol, AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec { .. }))
+                    .collect();
+
+                let statements: Vec<&AbstractSyntaxTreeNode> = ast_root
+                    .children
+                    .iter()
+                    .filter(|child| !matches!(child.symbol, AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec { .. }))
+                    .collect();
+                
+                writeln!(writer, "    jmp main_entry").unwrap();
+                
+                for func in &functions {
+                     self.generate_x64(func, writer);
+                }
+
+                writeln!(writer, "main_entry:").unwrap();
+
+                for stmt in statements {
+                    self.generate_x64(stmt, writer);
+                }
 
                 writeln!(writer, "    ret").unwrap();
 
-                if !self.declared_vars.is_empty() {
+                if !self.global_vars.is_empty() {
                     writeln!(writer, "\nsegment .bss").unwrap();
-                    for var in &self.declared_vars {
+                    for var in &self.global_vars {
                         writeln!(writer, "{} resd 1", var).unwrap();
                     }
                 }
             }
 
-            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolExit(expr) => match expr {
-                Expr::Int(i) => {
-                    writeln!(writer, "    mov eax, {}", i).unwrap();
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec {
+                name,
+                params,
+                return_type: _,
+                body,
+            } => {
+                let func_label = format!("func_{}", name);
+                writeln!(writer, "{}:", func_label).unwrap();
+                
+                writeln!(writer, "    push rbp").unwrap();
+                writeln!(writer, "    mov rbp, rsp").unwrap();
+
+                self.scopes.push(HashMap::new());
+                self.current_stack_offset = 0;
+    
+                let mut param_offset = 16;
+                // params vector is left to right
+                // if pushed R->L, first param is closest to RBP
+                for (_type, pname) in params {
+                    self.scopes.last_mut().unwrap().insert(pname.clone(), VariableLocation::Local(param_offset));
+                    param_offset += 8; // Assuming 64-bit/8-byte slots on stack
                 }
-                Expr::Ident(j) => {
-                    writeln!(writer, "    mov eax, dword [{}]", j).expect("Idek");
+
+                for stmt in body {
+                    self.generate_x64(stmt, writer);
                 }
-                Expr::Float(f) => {
-                    let bits = f.to_bits();
-                    writeln!(writer, "    mov eax, {}", bits).unwrap();
+
+                writeln!(writer, "    leave").unwrap();
+                writeln!(writer, "    ret").unwrap();
+                
+                self.scopes.pop();
+            }
+
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
+                // push args in reverse order
+                for arg in args.iter().rev() {
+                    self.generate_expr_into_register(arg, "eax", writer);
+                    writeln!(writer, "    push rax").unwrap();
                 }
-                Expr::Bool(b) => {
-                    let val = if *b { 1 } else { 0 };
-                    writeln!(writer, "    mov eax, {}", val).unwrap();
+                
+                let func_label = format!("func_{}", name);
+                writeln!(writer, "    call {}", func_label).unwrap();
+                
+                if !args.is_empty() {
+                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
                 }
-                Expr::Char(c) => {
-                    writeln!(writer, "    mov eax, {}", *c as u32).unwrap();
+            }
+
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(opt_expr) => {
+                if let Some(expr) = opt_expr {
+                    self.generate_expr_into_register(expr, "eax", writer);
                 }
-                Expr::BinaryOp { left, op, right } => {
-                    self.generate_binary_op(left, op, right, writer);
-                }
-            },
+                writeln!(writer, "    leave").unwrap();
+                writeln!(writer, "    ret").unwrap();
+            }
+
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolExit(expr) => {
+                self.generate_expr_into_register(expr, "eax", writer);
+                writeln!(writer, "    mov rcx, rax").unwrap();
+                // x64 ABI..... align stack to 16 bytes and allocate 32 bytes shadow space
+                writeln!(writer, "    and rsp, -16").unwrap();
+                writeln!(writer, "    sub rsp, 32").unwrap();
+                writeln!(writer, "    call ExitProcess").unwrap();
+            }
+
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration {
                 name,
                 type_: _type_,
                 value,
             } => {
-                self.declared_vars.insert(name.clone());
-                self.match_variable_helper(name, value, writer);
+                if self.scopes.len() == 1 { // global
+                    self.global_vars.insert(name.clone());
+                    self.scopes[0].insert(name.clone(), VariableLocation::Global);
+                    self.match_variable_helper(name, value, writer);
+                } else { // local
+                    self.current_stack_offset -= 8; // allocate 8 bytes... 4 for i32/f32, but aligned to 8
+                    let offset = self.current_stack_offset;
+                    self.scopes.last_mut().unwrap().insert(name.clone(), VariableLocation::Local(offset));
+                    
+                    self.match_variable_helper(name, value, writer);
+                }
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment {
@@ -92,7 +173,13 @@ impl Generator {
                 iterator_end,
                 body,
             } => {
-                self.declared_vars.insert(iterator_name.clone());
+                if self.scopes.len() == 1 {
+                     self.global_vars.insert(iterator_name.clone());
+                     self.scopes[0].insert(iterator_name.clone(), VariableLocation::Global);
+                } else {
+                     self.current_stack_offset -= 8;
+                     self.scopes.last_mut().unwrap().insert(iterator_name.clone(), VariableLocation::Local(self.current_stack_offset));
+                }
 
                 let loop_label = format!("loop_begin_{}", iterator_name);
                 let end_label = format!("loop_end_{}", iterator_name);
@@ -142,30 +229,81 @@ impl Generator {
         value: &Expr,
         writer: &mut BufWriter<&File>,
     ) {
+        let location = self.lookup_var(name);
+        
         match value {
             Expr::Int(i) => {
-                writeln!(writer, "    mov dword [{}], {}", name, i).unwrap();
+                match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, i).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, i).unwrap(),
+                }
             }
             Expr::Ident(ident) => {
-                writeln!(writer, "    mov eax, dword [{}]", ident).unwrap();
-                writeln!(writer, "    mov dword [{}], eax", name).unwrap();
+                // read from ident into eax
+                match self.lookup_var(ident) {
+                    VariableLocation::Global => writeln!(writer, "    mov eax, dword [{}]", ident).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov eax, dword [rbp{}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+                
+                // write eax to name
+                match location {
+                     VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
+                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
             }
             Expr::Float(f) => {
                 let bits = f.to_bits();
-                writeln!(writer, "    mov dword [{}], {}", name, bits).unwrap();
+                match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, bits).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, bits).unwrap(),
+                }
             }
             Expr::Bool(b) => {
                 let val = if *b { 1 } else { 0 };
-                writeln!(writer, "    mov dword [{}], {}", name, val).unwrap();
+                 match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, val).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, val).unwrap(),
+                }
             }
             Expr::Char(c) => {
-                writeln!(writer, "    mov dword [{}], {}", name, *c as u32).unwrap();
+                 match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, *c as u32).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, *c as u32).unwrap(),
+                }
             }
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
-                writeln!(writer, "    mov dword [{}], eax", name).unwrap();
+                 match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+            }
+            Expr::FunctionCall { name: func_name, args } => {
+                for arg in args.iter().rev() {
+                    self.generate_expr_into_register(arg, "eax", writer);
+                    writeln!(writer, "    push rax").unwrap();
+                }
+                let label = format!("func_{}", func_name);
+                writeln!(writer, "    call {}", label).unwrap();
+                if !args.is_empty() {
+                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                }
+
+                 match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
             }
         }
+    }
+    
+    fn lookup_var(&self, name: &str) -> VariableLocation {
+        for scope in self.scopes.iter().rev() {
+            if let Some(loc) = scope.get(name) {
+                return loc.clone();
+            }
+        }
+        VariableLocation::Global // fallback
     }
 
     fn generate_expr_into_register(
@@ -179,7 +317,10 @@ impl Generator {
                 writeln!(writer, "    mov {}, {}", reg, i).unwrap();
             }
             Expr::Ident(name) => {
-                writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap();
+                match self.lookup_var(name) {
+                    VariableLocation::Global => writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov {}, dword [rbp{}]", reg, if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
             }
             Expr::Float(f) => {
                 let bits = f.to_bits();
@@ -195,6 +336,20 @@ impl Generator {
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
                 writeln!(writer, "    mov {}, eax", reg).unwrap();
+            }
+            Expr::FunctionCall { name, args } => {
+                 for arg in args.iter().rev() {
+                    self.generate_expr_into_register(arg, "eax", writer);
+                    writeln!(writer, "    push rax").unwrap();
+                }
+                let label = format!("func_{}", name);
+                writeln!(writer, "    call {}", label).unwrap();
+                if !args.is_empty() {
+                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                }
+                if reg != "eax" {
+                    writeln!(writer, "    mov {}, eax", reg).unwrap();
+                }
             }
         }
     }
