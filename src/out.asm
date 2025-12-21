@@ -3,6 +3,7 @@ default rel
 
 segment .text
 global mainCRTStartup
+extern ExitProcess
 
 mainCRTStartup:
     jmp main_entry
@@ -38,6 +39,16 @@ main_entry:
     push rax
     call func_update_result
     add rsp, 16
+    mov eax, 5
+    push rax
+    call func_add_more
+    add rsp, 8
+    mov dword [result], eax
+    mov eax, dword [result]
+    mov rcx, rax
+    and rsp, -16
+    sub rsp, 32
+    call ExitProcess
     ret
 
 segment .bss

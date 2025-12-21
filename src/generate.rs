@@ -29,7 +29,7 @@ impl Generator {
         write!(
             writer,
             "{}",
-            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\n\nmainCRTStartup:\n"
+            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\n\nmainCRTStartup:\n"
         )
         .expect("Unable to write to file.");
     }
@@ -124,34 +124,23 @@ impl Generator {
                 }
             }
 
-            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(expr) => {
-                self.generate_expr_into_register(expr, "eax", writer);
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(opt_expr) => {
+                if let Some(expr) = opt_expr {
+                    self.generate_expr_into_register(expr, "eax", writer);
+                }
                 writeln!(writer, "    leave").unwrap();
                 writeln!(writer, "    ret").unwrap();
             }
 
-            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolExit(expr) => match expr {
-                Expr::Int(i) => {
-                    writeln!(writer, "    mov eax, {}", i).unwrap();
-                }
-                Expr::Ident(j) => {
-                    writeln!(writer, "    mov eax, dword [{}]", j).expect("Idek");
-                }
-                Expr::Float(f) => {
-                    let bits = f.to_bits();
-                    writeln!(writer, "    mov eax, {}", bits).unwrap();
-                }
-                Expr::Bool(b) => {
-                    let val = if *b { 1 } else { 0 };
-                    writeln!(writer, "    mov eax, {}", val).unwrap();
-                }
-                Expr::Char(c) => {
-                    writeln!(writer, "    mov eax, {}", *c as u32).unwrap();
-                }
-                Expr::BinaryOp { left, op, right } => {
-                    self.generate_binary_op(left, op, right, writer);
-                }
-            },
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolExit(expr) => {
+                self.generate_expr_into_register(expr, "eax", writer);
+                writeln!(writer, "    mov rcx, rax").unwrap();
+                // x64 ABI..... align stack to 16 bytes and allocate 32 bytes shadow space
+                writeln!(writer, "    and rsp, -16").unwrap();
+                writeln!(writer, "    sub rsp, 32").unwrap();
+                writeln!(writer, "    call ExitProcess").unwrap();
+            }
+
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration {
                 name,
@@ -289,6 +278,22 @@ impl Generator {
                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
                 }
             }
+            Expr::FunctionCall { name: func_name, args } => {
+                for arg in args.iter().rev() {
+                    self.generate_expr_into_register(arg, "eax", writer);
+                    writeln!(writer, "    push rax").unwrap();
+                }
+                let label = format!("func_{}", func_name);
+                writeln!(writer, "    call {}", label).unwrap();
+                if !args.is_empty() {
+                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                }
+
+                 match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+            }
         }
     }
     
@@ -331,6 +336,20 @@ impl Generator {
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
                 writeln!(writer, "    mov {}, eax", reg).unwrap();
+            }
+            Expr::FunctionCall { name, args } => {
+                 for arg in args.iter().rev() {
+                    self.generate_expr_into_register(arg, "eax", writer);
+                    writeln!(writer, "    push rax").unwrap();
+                }
+                let label = format!("func_{}", name);
+                writeln!(writer, "    call {}", label).unwrap();
+                if !args.is_empty() {
+                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                }
+                if reg != "eax" {
+                    writeln!(writer, "    mov {}, eax", reg).unwrap();
+                }
             }
         }
     }
