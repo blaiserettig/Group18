@@ -25,19 +25,30 @@ Noble follows a simple, C-like syntax:
 
 ```noble
 i32s x = 0;
-for i in 0 to 10 {              // User-defined iterator names
-    x = x + i;                  // Variable assignment from another variable
+for i in 0 to 10 {              
+    x = x + i;                  
 }
-{                               // User-defined blocks
-    bool y = false;             // Will not conflict with the later defined y
+
+{                               
+    bool y = false;             
     f32s z = 3.14159;
 }
-i32s y = ((x + 10) * 5) / 2;    // Correct order of operations
+
+i32s y = ((x + 10) * 5) / 2;    
 char c = 'a';
 char d = 'b';
-if c < d {                      // Supports lt, lte, gt, gte, eq, ne
+
+fn is_less_than(char a, char b) -> bool {
+    return a < b;
+}
+
+fn is_equal(char a, char b) -> bool {
+    return a == b;
+}
+
+if is_less_than(c, d) {                      
     exit 1;
-} else if c == d {
+} else if is_equal(c, d) {
     exit 2;
 } else {                        
     exit 0;
@@ -48,16 +59,19 @@ if c < d {                      // Supports lt, lte, gt, gte, eq, ne
 
 ```
 "Entry Point"   → Stmt*
-Stmt            → Exit | VariableDec | VariableAsm | For | If
+Stmt            → Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall | Return
 VariableDec     → Type Ident "=" Expr ";"
 VariableAsm     → Ident "=" Expr ";"
 For             → "for" Ident "in" Int_Lit "to" Int_Lit Block
 If              → "if" Expr Block Else
 Else            → "else" If | "else" Block | ε
+FunctionDec     → "fn" Ident "(" (Type Ident)* ")" "->" Type Block
+FunctionCall    → Ident "(" Expr* ")" ";"
 Block           → "{" Stmt* "}"
-Type            → i32s | f32s | bool | char
+Type            → i32s | f32s | bool | char | void
 Ident           → *user-defined non-keyword*
 Exit            → "exit" Expr ";"
+Return          → "return" [Expr] ";"
 Expr            → Equality
 Equality        → Comparison (("==" | "!=") Comparison)*
 Comparison      → Add (("<" | "<=" | ">" | ">=") Add)*
@@ -149,7 +163,7 @@ exit y;
 3. **Assemble and link** (Windows):
 ```bash
 nasm -f win64 src/out.asm -o out.obj
-link out.obj /subsystem:console /entry:mainCRTStartup
+link out.obj "your_path_to_kernel32.lib" /subsystem:console /entry:mainCRTStartup
 ```
 4. **Run and verify** (Windows PowerShell):
 ```bash
@@ -371,7 +385,7 @@ AbstractSyntaxTreeSymbolEntry
 - [x] Loops (`while`, `for`)
 
 ### Long Term
-- [ ] Functions and procedure calls
+- [x] Functions and procedure calls
 - [ ] Structs and user-defined types
 - [ ] Standard library functions
 - [ ] Optimization passes
