@@ -1,7 +1,18 @@
+i32s x = 0;
+for i in 0 to 10 {
+    x = x + i;
+}
+{
+    bool y = false;
+    f32s z = 3.14159;
+}
+i32s y = ((x + 10) * 5) / 2;
 char c = 'a';
 char d = 'b';
 if c < d {
     exit 1;
+} else if c == d {
+    exit 2;
 } else {
     exit 0;
 }

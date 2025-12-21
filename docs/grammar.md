@@ -2,14 +2,16 @@
 ***
 ```
 "Entry Point"   → Stmt*
-Stmt            → Exit | VariableDec | VariableAsm | For | If
+Stmt            → Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall
 VariableDec     → Type Ident "=" Expr ";"
 VariableAsm     → Ident "=" Expr ";"
 For             → "for" Ident "in" Int_Lit "to" Int_Lit Block
 If              → "if" Expr Block Else
 Else            → "else" If | "else" Block | ε
+FunctionDec     → "fn" Ident "(" Expr* ")" "->" Type Block
+FunctionCall    → Ident "(" Expr* ")" ";"
 Block           → "{" Stmt* "}"
-Type            → i32s | f32s | bool | char
+Type            → i32s | f32s | bool | char | void
 Ident           → *user-defined non-keyword*
 Exit            → "exit" Expr ";"
 Expr            → Equality
