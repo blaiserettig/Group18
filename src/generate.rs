@@ -14,6 +14,8 @@ pub struct Generator {
     scopes: Vec<HashMap<String, VariableLocation>>,
     current_stack_offset: i32,
     global_vars: HashSet<String>,
+    string_literals: HashMap<String, String>, // content, label
+    string_counter: usize,
 }
 
 impl Generator {
@@ -22,6 +24,8 @@ impl Generator {
             scopes: vec![HashMap::new()], // Global scope
             current_stack_offset: 0,
             global_vars: HashSet::new(),
+            string_literals: HashMap::new(),
+            string_counter: 0,
         }
     }
 
@@ -29,7 +33,7 @@ impl Generator {
         write!(
             writer,
             "{}",
-            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\n\nmainCRTStartup:\n"
+            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\nextern puts\n\nmainCRTStartup:\n"
         )
         .expect("Unable to write to file.");
     }
@@ -74,6 +78,13 @@ impl Generator {
                         writeln!(writer, "{} resd 1", var).unwrap();
                     }
                 }
+
+                if !self.string_literals.is_empty() {
+                    writeln!(writer, "\nsegment .data").unwrap();
+                    for (content, label) in &self.string_literals {
+                        writeln!(writer, "{} db `{}`, 0", label, content).unwrap();
+                    }
+                }
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec {
@@ -110,17 +121,28 @@ impl Generator {
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
-                // push args in reverse order
-                for arg in args.iter().rev() {
-                    self.generate_expr_into_register(arg, "eax", writer);
-                    writeln!(writer, "    push rax").unwrap();
-                }
-                
-                let func_label = format!("func_{}", name);
-                writeln!(writer, "    call {}", func_label).unwrap();
-                
-                if !args.is_empty() {
-                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                if name == "print" {
+                    // calls puts
+                    for arg in args.iter().rev() {
+                        self.generate_expr_into_register(arg, "rcx", writer);
+                        writeln!(writer, "    and rsp, -16").unwrap();
+                        writeln!(writer, "    sub rsp, 32").unwrap();
+                        writeln!(writer, "    call puts").unwrap();
+                        writeln!(writer, "    add rsp, 32").unwrap();
+                    }
+                } else {
+                    // reg function call
+                    for arg in args.iter().rev() {
+                        self.generate_expr_into_register(arg, "eax", writer);
+                        writeln!(writer, "    push rax").unwrap();
+                    }
+                    
+                    let func_label = format!("func_{}", name);
+                    writeln!(writer, "    call {}", func_label).unwrap();
+                    
+                    if !args.is_empty() {
+                        writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
+                    }
                 }
             }
 
@@ -271,6 +293,22 @@ impl Generator {
                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, *c as u32).unwrap(),
                 }
             }
+            Expr::String(s) => {
+                // get or create label
+                let label = if let Some(existing_label) = self.string_literals.get(s) {
+                    existing_label.clone()
+                } else {
+                    let new_label = format!("str_{}", self.string_counter);
+                    self.string_counter += 1;
+                    self.string_literals.insert(s.clone(), new_label.clone());
+                    new_label
+                };
+                writeln!(writer, "    lea rax, [{}]", label).unwrap();
+                match location {
+                    VariableLocation::Global => writeln!(writer, "    mov qword [{}], rax", name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov qword [rbp{}], rax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+            }
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
                  match location {
@@ -332,6 +370,17 @@ impl Generator {
             }
             Expr::Char(c) => {
                 writeln!(writer, "    mov {}, {}", reg, *c as u32).unwrap();
+            }
+            Expr::String(s) => {
+                let label = if let Some(existing_label) = self.string_literals.get(s) {
+                    existing_label.clone()
+                } else {
+                    let new_label = format!("str_{}", self.string_counter);
+                    self.string_counter += 1;
+                    self.string_literals.insert(s.clone(), new_label.clone());
+                    new_label
+                };
+                writeln!(writer, "    lea {}, [{}]", reg, label).unwrap();
             }
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);

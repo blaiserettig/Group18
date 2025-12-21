@@ -12,9 +12,11 @@ pub enum TokenType {
     TokenTypeTypeF32S,
     TokenTypeTypeBool,
     TokenTypeTypeChar,
+    TokenTypeTypeString,
     TokenTypeFloatLiteral,
     TokenTypeCharLiteral,
     TokenTypeBooleanLiteral,
+    TokenTypeStringLiteral,
     TokenTypeFor,
     TokenTypeForIn,
     TokenTypeForTo,
@@ -148,6 +150,11 @@ impl Tokenizer {
                 } else if buffer == ['v', 'o', 'i', 'd'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeVoid,
+                        value: None,
+                    })
+                } else if buffer == ['s', 't', 'r', 'i', 'n', 'g'] {
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeTypeString,
                         value: None,
                     })
                 } else {
@@ -310,6 +317,39 @@ impl Tokenizer {
                     });
                 } else {
                     eprintln!("Tokenization Error: Expected closing quote for char literal");
+                    exit(1);
+                }
+            } else if self.current().unwrap() == '"' {
+                self.consume();
+                let mut string_content = String::new();
+                while self.current() != None && self.current().unwrap() != '"' {
+                    let ch = self.consume();
+                    if ch == '\\' && self.current() != None {
+                        // Handle escape sequences
+                        let next = self.consume();
+                        match next {
+                            'n' => string_content.push('\n'),
+                            't' => string_content.push('\t'),
+                            'r' => string_content.push('\r'),
+                            '\\' => string_content.push('\\'),
+                            '"' => string_content.push('"'),
+                            _ => {
+                                string_content.push('\\');
+                                string_content.push(next);
+                            }
+                        }
+                    } else {
+                        string_content.push(ch);
+                    }
+                }
+                if self.current() != None && self.current().unwrap() == '"' {
+                    self.consume();
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeStringLiteral,
+                        value: Some(string_content),
+                    });
+                } else {
+                    eprintln!("Tokenization Error: Expected closing quote for string literal");
                     exit(1);
                 }
             } else if self.current().unwrap().is_ascii_whitespace() {

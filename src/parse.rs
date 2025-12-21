@@ -77,9 +77,11 @@ pub enum ParseTreeSymbol {
     ParseTreeSymbolTerminalF32S,
     ParseTreeSymbolTerminalBool,
     ParseTreeSymbolTerminalChar,
+    ParseTreeSymbolTerminalString,
     ParseTreeSymbolTerminalFloatLiteral,
     ParseTreeSymbolTerminalCharLiteral,
     ParseTreeSymbolTerminalBooleanLiteral,
+    ParseTreeSymbolTerminalStringLiteral,
     ParseTreeSymbolTerminalIdentifier,
     ParseTreeSymbolTerminalFor,
     ParseTreeSymbolTerminalForIn,
@@ -120,6 +122,7 @@ pub enum Type {
     F32S,
     Bool,
     Char,
+    String,
     Void,
 }
 
@@ -129,6 +132,7 @@ pub enum Expr {
     Float(f32),
     Bool(bool),
     Char(char),
+    String(String),
     Ident(String),
     BinaryOp {
         left: Box<Expr>,
@@ -273,6 +277,12 @@ impl Parser {
                     .push(self.parse_variable_declaration()?);
                 Ok(statement_node)
             }
+            TokenType::TokenTypeTypeString => {
+                statement_node
+                    .children
+                    .push(self.parse_variable_declaration()?);
+                Ok(statement_node)
+            }
             TokenType::TokenTypeIdentifier => {
                 // if next token is '(', it's a function call
                 // else assignment
@@ -314,7 +324,8 @@ impl Parser {
             TokenType::TokenTypeIntegerLiteral
             | TokenType::TokenTypeFloatLiteral
             | TokenType::TokenTypeBooleanLiteral
-            | TokenType::TokenTypeCharLiteral => {
+            | TokenType::TokenTypeCharLiteral
+            | TokenType::TokenTypeStringLiteral => {
                 Err(format!(
                     "ParseError: unexpected literal at start of statement: {:?}",
                     token.token_type
@@ -800,6 +811,20 @@ impl Parser {
                 })
             }
 
+            TokenType::TokenTypeStringLiteral => {
+                let child = ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolTerminalStringLiteral,
+                    children: Vec::new(),
+                    value: token.value.clone(),
+                };
+                self.consume();
+                Ok(ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
+                    children: vec![child],
+                    value: None,
+                })
+            }
+
             TokenType::TokenTypeIdentifier => {
                 if self.tokens.get(self.token_index + 1).map(|t| t.token_type) == Some(TokenType::TokenTypeLeftParen) {
                     let call_node = self.parse_function_call_expr()?;
@@ -1085,6 +1110,20 @@ impl Parser {
             };
             self.consume();
             Ok(node)
+        } else if self.current() != None
+            && self.current().unwrap().token_type == TokenType::TokenTypeTypeString
+        {
+            let node = ParseTreeNode {
+                symbol: ParseTreeSymbol::ParseTreeSymbolNodeType,
+                children: vec![ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolTerminalString,
+                    children: Vec::new(),
+                    value: None,
+                }],
+                value: None,
+            };
+            self.consume();
+            Ok(node)
         } else {
             Err(format!(
                 "MissingTokenError: expected Type, found: {:?}",
@@ -1315,6 +1354,7 @@ impl Parser {
             Expr::Float(_) => Type::F32S,
             Expr::Bool(_) => Type::Bool,
             Expr::Char(_) => Type::Char,
+            Expr::String(_) => Type::String,
             Expr::Ident(name) => {
                 for scope in self.scopes.iter().rev() {
                     if let Some(entry) = scope.get(name) {
@@ -1861,6 +1901,10 @@ impl Parser {
                 let value = child.value.as_ref().unwrap().chars().next().unwrap();
                 Expr::Char(value)
             }
+            ParseTreeSymbol::ParseTreeSymbolTerminalStringLiteral => {
+                let value = child.value.as_ref().unwrap().clone();
+                Expr::String(value)
+            }
             _ => panic!("Unsupported expression type: {:?}", child.symbol),
         }
     }
@@ -2026,6 +2070,7 @@ impl Parser {
             ParseTreeSymbol::ParseTreeSymbolTerminalF32S => Type::F32S,
             ParseTreeSymbol::ParseTreeSymbolTerminalBool => Type::Bool,
             ParseTreeSymbol::ParseTreeSymbolTerminalChar => Type::Char,
+            ParseTreeSymbol::ParseTreeSymbolTerminalString => Type::String,
             ParseTreeSymbol::ParseTreeSymbolTerminalVoid => Type::Void,
             _ => panic!("Unsupported type node"),
         }
