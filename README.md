@@ -11,10 +11,11 @@ A minimal, educational programming language implemented in Rust that compiles to
 ## Features
 
 - **Complete Compilation Pipeline**: Lexing → Parsing → AST Generation → x86-64 Code Generation
-- **Type System**: Strongly typed, currently supporting `i32s, f32s, bool`
+- **Type System**: Strongly typed with `i32s`, `f32s`, `bool`, `char`, `string`, and `void`
 - **Variable Declaration and Assignment**: Store and retrieve values
-- **Control Flow**: For loops
-- **Program Exit with Return Values**: Control program termination
+- **Control Flow**: For loops and if/else conditionals
+- **Functions**: User-defined functions with parameters and return values
+- **String Support**: String literals with escape sequences and print function
 - **Cross-Platform Assembly Output**: Generates NASM-compatible x86-64 assembly
 - **Comprehensive Error Handling**: Detailed error messages for failures
 - **Symbol Table Management**: Tracks variable declarations and types across multiple scopes
@@ -68,7 +69,7 @@ Else            → "else" If | "else" Block | ε
 FunctionDec     → "fn" Ident "(" (Type Ident)* ")" "->" Type Block
 FunctionCall    → Ident "(" Expr* ")" ";"
 Block           → "{" Stmt* "}"
-Type            → i32s | f32s | bool | char | void
+Type            → i32s | f32s | bool | char | string | void
 Ident           → *user-defined non-keyword*
 Exit            → "exit" Expr ";"
 Return          → "return" [Expr] ";"
@@ -77,11 +78,12 @@ Equality        → Comparison (("==" | "!=") Comparison)*
 Comparison      → Add (("<" | "<=" | ">" | ">=") Add)*
 Add             → Mul (("+" | "-") Mul)*
 Mul             → Primary (("*" | "/") Primary)*
-Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | Ident | "(" Expr ")"
+Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | String_Lit | Ident | "(" Expr ")"
 Int_Lit         → *integer literal*
-Int_Lit         → *floating point literal*
-Int_Lit         → *boolean point literal*
+Float_Lit       → *floating point literal*
+Bool_Lit        → *boolean literal*
 Char_Lit        → *character literal*
+String_Lit      → *string literal*
 ```
 
 ## Architecture
@@ -124,7 +126,7 @@ x86-64 Assembly (.asm)
 
 ### Code Generator
 - **x86-64 assembly generation** using NASM syntax
-- **Memory management**: Automatic `.bss` segment generation for variables
+- **Memory management**: Automatic `.bss` segment for variables and `.data` segment for string literals
 - **Register allocation**: Strategic use of EAX register for operations
 - **Boilerplate generation**: Windows-compatible entry point setup
 
@@ -163,7 +165,7 @@ exit y;
 3. **Assemble and link** (Windows):
 ```bash
 nasm -f win64 src/out.asm -o out.obj
-link out.obj "your_path_to_kernel32.lib" /subsystem:console /entry:mainCRTStartup
+link out.obj "your_path_to_kernel32.lib" "your_path_to_ucrt.lib" "your_path_to_vcruntime.lib" subsystem:console /entry:mainCRTStartup
 ```
 4. **Run and verify** (Windows PowerShell):
 ```bash
@@ -380,7 +382,8 @@ AbstractSyntaxTreeSymbolEntry
 
 ### Medium Term  
 - [ ] Arrays and basic data structures
-- [ ] String literals and manipulation
+- [x] String literals and manipulation
+- [x] Print function for console output
 - [x] Conditional statements (`if`/`else`)
 - [x] Loops (`while`, `for`)
 
