@@ -266,9 +266,8 @@ impl Parser {
                 Ok(statement_node)
             }
             TokenType::TokenTypeIdentifier => {
-                // Check if next token is '(', if so it's a function call.
-                // Else assignment.
-                // Peek
+                // if next token is '(', it's a function call
+                // else assignment
                 if self.tokens.get(self.token_index + 1).map(|t| t.token_type) == Some(TokenType::TokenTypeLeftParen) {
                      statement_node
                         .children
@@ -306,13 +305,6 @@ impl Parser {
             | TokenType::TokenTypeFloatLiteral
             | TokenType::TokenTypeBooleanLiteral
             | TokenType::TokenTypeCharLiteral => {
-                // Expression statement (e.g. `1 + 1;`) - valid in many languages but check grammar
-                // Grammar says Stmt -> ... | VariableDec ...
-                // Grammar: Stmt -> Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall
-                // It does NOT say "Expr ;".
-                // So literals appearing start of stmt is invalid unless it's part of FunctionCall?
-                // Wait, FunctionCall starts with Ident.
-                // So literals are invalid here.
                 Err(format!(
                     "ParseError: unexpected literal at start of statement: {:?}",
                     token.token_type
@@ -326,10 +318,7 @@ impl Parser {
     }
 
     fn parse_function_dec(&mut self) -> Result<ParseTreeNode, String> {
-        // "fn" Ident "(" Expr* ")" "->" Type Block
-        // Note: Expr* in grammar, but user said "Type Ident" (params)
-        // I will implement "Type Ident" pairs separated by comma.
-
+        // "fn" Ident "(" Ident* ")" "->" Type Block
         let fn_token = self.consume(); // fn
         let fn_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFn,
@@ -359,12 +348,6 @@ impl Parser {
 
         // PARAMS
         // (Type Ident, Type Ident, ...)
-        // We need to capture these to put into the CST?
-        // Let's create a generic "Params" node or just list them as children.
-        // I'll list them as children of FunctionDec node intermixed with other terminals?
-        // Or I can make a ParseTreeNode for each param?
-        // The AST builder cares more. I'll just flatten them into children.
-
         let mut param_children = Vec::new();
 
         if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightParen) {
@@ -411,21 +394,11 @@ impl Parser {
 
         let return_type_node = self.parse_type()?;
 
-        // Push new scope for function body (params + locals)
         self.push_scope();
-        // Insert params into scope?
-        // I can't easily do it here because `parse_type` returns a CST node, not `Type`.
-        // `match_type_in_scope` converts it. I should do that helpers.
-        // Actually, semantic analysis (scope insertion) usually happens in AST builder or `parse_variable_declaration`.
-        // Existing parser does it in `parse_variable_declaration`.
-        // So I SHOULD do it here if I want consistency.
-        // But the params are just in `param_children`.
-        // I'll skip scope insertion for params FOR NOW in parser, relying on `generate.rs` or `build_ast` ...
-        // Wait, if I don't insert params into scope, referencing them in the body will fail semantic checks (undefined variable) during `parse_block` -> `parse_statement` -> `parse_expression` -> `build_primary` -> `lookup_in_scope`.
-        // CRITICAL: **params MUST be inserted into scope before parsing block**.
 
+        // params MUST be inserted into scope before parsing block
         {
-            // Hacky reconstruction of params from param_children
+            // hacky reconstruction of params from param_children
             let mut i = 0;
             while i < param_children.len() {
                 // [TypeNode, IdentNode] pairs
@@ -433,8 +406,8 @@ impl Parser {
                 let ident_node = &param_children[i+1];
                 let type_val = self.match_type_in_scope(type_node);
                 let name = ident_node.value.as_ref().unwrap().clone();
-                // Value is unknown at compile time, but we just need entry for lookup.
-                // We'll give it a dummy value.
+                // value is unknown at compile time, but we just need entry for lookup
+                // we'll give it a dummy value
                 self.insert_in_scope(name, VarEntry { var_type: type_val, var_value: Expr::Int(0)});
                 i += 2;
             }
@@ -459,19 +432,6 @@ impl Parser {
 
     fn parse_function_call(&mut self) -> Result<ParseTreeNode, String> {
         // Ident "(" Expr* ")" ";"
-        // We already consumed Ident in parse_statement usually... but wait.
-        // In parse_statement, if we see Ident, we call parse_variable_assignment.
-        // I need to change parse_statement to peek next char.
-
-        // Actually `parse_statement` calls `parse_variable_assignment` which consumes Ident.
-        // I should refactor `parse_statement` to distinguish assignment vs call.
-        // See updated `parse_statement` below (or above).
-        // Wait, I haven't updated `parse_statement` logic for Ident yet in `MultiReplace`.
-        // I will do that in the `parse_statement` replacement chunk.
-
-        // This function assumes we sit BEFORE the identifier (not consumed).
-        // Or if consumed, we pass it? simpler if not consumed.
-
         let ident_token = self.consume(); // Ident
         let ident_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
@@ -783,6 +743,7 @@ impl Parser {
                     value: None,
                 })
             }
+
             TokenType::TokenTypeFloatLiteral => {
                 let child = ParseTreeNode {
                     symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFloatLiteral,
@@ -1618,20 +1579,16 @@ impl Parser {
                         continue;
                     }
 
-                    // Must be Type
                     let type_node = child;
                     let type_val = self.match_type_in_scope(type_node);
                     i += 1;
 
-                    // Next is Ident
                     let ident_child = &parse_tree.children[i];
                     let pname = ident_child.value.as_ref().unwrap().clone();
                     params.push((type_val, pname));
                     i += 1;
                 }
 
-                // After loop, i points after ')'
-                // i points to '->'
                 i += 1; // skip ->
 
                 let return_type_node = &parse_tree.children[i];
