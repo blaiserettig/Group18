@@ -34,6 +34,11 @@ pub enum TokenType {
     TokenTypeNotEquals,
     TokenTypeLeftParen,
     TokenTypeRightParen,
+    TokenTypeFn,
+    TokenTypeReturn,
+    TokenTypeTypeVoid,
+    TokenTypeArrow,
+    TokenTypeComma,
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,9 +70,9 @@ impl Tokenizer {
         });
 
         while !self.is_at_end() {
-            if self.current().unwrap().is_ascii_alphabetic() {
+            if self.current().unwrap().is_ascii_alphabetic() || self.current().unwrap() == '_' {
                 buffer.push(self.consume());
-                while self.current() != None && self.current().unwrap().is_ascii_alphanumeric() {
+                while self.current() != None && (self.current().unwrap().is_ascii_alphanumeric() || self.current().unwrap() == '_') {
                     buffer.push(self.consume());
                 }
                 if buffer == ['e', 'x', 'i', 't'] {
@@ -128,6 +133,21 @@ impl Tokenizer {
                 } else if buffer == ['e', 'l', 's', 'e'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeElse,
+                        value: None,
+                    })
+                } else if buffer == ['f', 'n'] {
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeFn,
+                        value: None,
+                    })
+                } else if buffer == ['r', 'e', 't', 'u', 'r', 'n'] {
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeReturn,
+                        value: None,
+                    })
+                } else if buffer == ['v', 'o', 'i', 'd'] {
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeTypeVoid,
                         value: None,
                     })
                 } else {
@@ -225,8 +245,22 @@ impl Tokenizer {
                 });
             } else if self.current().unwrap() == '-' {
                 self.consume();
+                if self.current() == Some('>') {
+                    self.consume();
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeArrow, 
+                        value: None,
+                    });
+                } else {
+                    tokens.push(Token {
+                        token_type: TokenType::TokenTypeMinus,
+                        value: None,
+                    });
+                }
+            } else if self.current().unwrap() == ',' {
+                self.consume();
                 tokens.push(Token {
-                    token_type: TokenType::TokenTypeMinus,
+                    token_type: TokenType::TokenTypeComma,
                     value: None,
                 });
             } else if self.current().unwrap() == '*' {

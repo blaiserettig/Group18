@@ -5,6 +5,17 @@ use std::vec;
 #[derive(Debug)]
 pub enum AbstractSyntaxTreeSymbol {
     AbstractSyntaxTreeSymbolEntry,
+    AbstractSyntaxTreeSymbolFunctionDec {
+        name: String,
+        params: Vec<(Type, String)>,
+        return_type: Type,
+        body: Vec<AbstractSyntaxTreeNode>,
+    },
+    AbstractSyntaxTreeSymbolFunctionCall {
+        name: String,
+        args: Vec<Expr>,
+    },
+    AbstractSyntaxTreeSymbolReturn(Expr),
     AbstractSyntaxTreeSymbolExit(Expr),
     AbstractSyntaxTreeSymbolVariableDeclaration {
         name: String,
@@ -50,6 +61,9 @@ pub enum ParseTreeSymbol {
     ParseTreeSymbolNodeIf,
     ParseTreeSymbolNodeElse,
     ParseTreeSymbolNodeBlock,
+    ParseTreeSymbolNodeFunctionDec,
+    ParseTreeSymbolNodeFunctionCall,
+    ParseTreeSymbolNodeReturn,
     ParseTreeSymbolNodeEquality,
     ParseTreeSymbolNodeComparison,
     ParseTreeSymbolNodeAdd,
@@ -86,6 +100,11 @@ pub enum ParseTreeSymbol {
     ParseTreeSymbolTerminalNotEquals,
     ParseTreeSymbolTerminalLeftParen,
     ParseTreeSymbolTerminalRightParen,
+    ParseTreeSymbolTerminalFn,
+    ParseTreeSymbolTerminalReturn,
+    ParseTreeSymbolTerminalVoid,
+    ParseTreeSymbolTerminalArrow,
+    ParseTreeSymbolTerminalComma,
 }
 
 #[derive(Debug)]
@@ -101,6 +120,7 @@ pub enum Type {
     F32S,
     Bool,
     Char,
+    Void,
 }
 
 #[derive(Debug, Clone)]
@@ -246,9 +266,18 @@ impl Parser {
                 Ok(statement_node)
             }
             TokenType::TokenTypeIdentifier => {
-                statement_node
-                    .children
-                    .push(self.parse_variable_assignment()?);
+                // Check if next token is '(', if so it's a function call.
+                // Else assignment.
+                // Peek
+                if self.tokens.get(self.token_index + 1).map(|t| t.token_type) == Some(TokenType::TokenTypeLeftParen) {
+                     statement_node
+                        .children
+                        .push(self.parse_function_call()?);
+                } else {
+                    statement_node
+                        .children
+                        .push(self.parse_variable_assignment()?);
+                }
                 Ok(statement_node)
             }
             TokenType::TokenTypeFor => {
@@ -265,11 +294,268 @@ impl Parser {
                 self.pop_scope();
                 Ok(statement_node)
             }
+            TokenType::TokenTypeFn => {
+                statement_node.children.push(self.parse_function_dec()?);
+                Ok(statement_node)
+            }
+            TokenType::TokenTypeReturn => {
+                statement_node.children.push(self.parse_return()?);
+                Ok(statement_node)
+            }
+            TokenType::TokenTypeIntegerLiteral
+            | TokenType::TokenTypeFloatLiteral
+            | TokenType::TokenTypeBooleanLiteral
+            | TokenType::TokenTypeCharLiteral => {
+                // Expression statement (e.g. `1 + 1;`) - valid in many languages but check grammar
+                // Grammar says Stmt -> ... | VariableDec ...
+                // Grammar: Stmt -> Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall
+                // It does NOT say "Expr ;".
+                // So literals appearing start of stmt is invalid unless it's part of FunctionCall?
+                // Wait, FunctionCall starts with Ident.
+                // So literals are invalid here.
+                Err(format!(
+                    "ParseError: unexpected literal at start of statement: {:?}",
+                    token.token_type
+                ))
+            }
             _ => Err(format!(
                 "ParseError: unrecognized token type: {:?}",
                 token.token_type
             )),
         }
+    }
+
+    fn parse_function_dec(&mut self) -> Result<ParseTreeNode, String> {
+        // "fn" Ident "(" Expr* ")" "->" Type Block
+        // Note: Expr* in grammar, but user said "Type Ident" (params)
+        // I will implement "Type Ident" pairs separated by comma.
+
+        let fn_token = self.consume(); // fn
+        let fn_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFn,
+            children: vec![],
+            value: None,
+        };
+
+        let ident_token = self.current().ok_or("Expected identifier after fn")?;
+        if ident_token.token_type != TokenType::TokenTypeIdentifier {
+            return Err("Expected identifier after fn".to_string());
+        }
+        let ident_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
+            children: vec![],
+            value: ident_token.value.clone(),
+        };
+        self.consume();
+
+        if self.consume().token_type != TokenType::TokenTypeLeftParen {
+            return Err("Expected '(' after function name".to_string());
+        }
+        let lparen_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftParen,
+            children: vec![],
+            value: None,
+        };
+
+        // PARAMS
+        // (Type Ident, Type Ident, ...)
+        // We need to capture these to put into the CST?
+        // Let's create a generic "Params" node or just list them as children.
+        // I'll list them as children of FunctionDec node intermixed with other terminals?
+        // Or I can make a ParseTreeNode for each param?
+        // The AST builder cares more. I'll just flatten them into children.
+
+        let mut param_children = Vec::new();
+
+        if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightParen) {
+            loop {
+                let type_node = self.parse_type()?;
+                param_children.push(type_node);
+
+                let p_ident = self.current().ok_or("Expected identifier in param")?;
+                if p_ident.token_type != TokenType::TokenTypeIdentifier {
+                    return Err("Expected identifier in param".to_string());
+                }
+                param_children.push(ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
+                    children: vec![],
+                    value: p_ident.value.clone(),
+                });
+                self.consume();
+
+                if self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeComma) {
+                    self.consume();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if self.consume().token_type != TokenType::TokenTypeRightParen {
+            return Err("Expected ')' after parameters".to_string());
+        }
+        let rparen_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightParen,
+            children: vec![],
+            value: None,
+        };
+
+        if self.consume().token_type != TokenType::TokenTypeArrow {
+            return Err("Expected '->' after parameters".to_string());
+        }
+        let arrow_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalArrow,
+            children: vec![],
+            value: None,
+        };
+
+        let return_type_node = self.parse_type()?;
+
+        // Push new scope for function body (params + locals)
+        self.push_scope();
+        // Insert params into scope?
+        // I can't easily do it here because `parse_type` returns a CST node, not `Type`.
+        // `match_type_in_scope` converts it. I should do that helpers.
+        // Actually, semantic analysis (scope insertion) usually happens in AST builder or `parse_variable_declaration`.
+        // Existing parser does it in `parse_variable_declaration`.
+        // So I SHOULD do it here if I want consistency.
+        // But the params are just in `param_children`.
+        // I'll skip scope insertion for params FOR NOW in parser, relying on `generate.rs` or `build_ast` ...
+        // Wait, if I don't insert params into scope, referencing them in the body will fail semantic checks (undefined variable) during `parse_block` -> `parse_statement` -> `parse_expression` -> `build_primary` -> `lookup_in_scope`.
+        // CRITICAL: **params MUST be inserted into scope before parsing block**.
+
+        {
+            // Hacky reconstruction of params from param_children
+            let mut i = 0;
+            while i < param_children.len() {
+                // [TypeNode, IdentNode] pairs
+                let type_node = &param_children[i];
+                let ident_node = &param_children[i+1];
+                let type_val = self.match_type_in_scope(type_node);
+                let name = ident_node.value.as_ref().unwrap().clone();
+                // Value is unknown at compile time, but we just need entry for lookup.
+                // We'll give it a dummy value.
+                self.insert_in_scope(name, VarEntry { var_type: type_val, var_value: Expr::Int(0)});
+                i += 2;
+            }
+        }
+
+        let block_node = self.parse_block()?;
+        self.pop_scope();
+
+        let mut children = vec![fn_terminal, ident_terminal, lparen_terminal];
+        children.extend(param_children);
+        children.push(rparen_terminal);
+        children.push(arrow_terminal);
+        children.push(return_type_node);
+        children.push(block_node);
+
+        Ok(ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolNodeFunctionDec,
+            children,
+            value: None,
+        })
+    }
+
+    fn parse_function_call(&mut self) -> Result<ParseTreeNode, String> {
+        // Ident "(" Expr* ")" ";"
+        // We already consumed Ident in parse_statement usually... but wait.
+        // In parse_statement, if we see Ident, we call parse_variable_assignment.
+        // I need to change parse_statement to peek next char.
+
+        // Actually `parse_statement` calls `parse_variable_assignment` which consumes Ident.
+        // I should refactor `parse_statement` to distinguish assignment vs call.
+        // See updated `parse_statement` below (or above).
+        // Wait, I haven't updated `parse_statement` logic for Ident yet in `MultiReplace`.
+        // I will do that in the `parse_statement` replacement chunk.
+
+        // This function assumes we sit BEFORE the identifier (not consumed).
+        // Or if consumed, we pass it? simpler if not consumed.
+
+        let ident_token = self.consume(); // Ident
+        let ident_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
+            children: vec![],
+            value: ident_token.value.clone(),
+        };
+
+        if self.consume().token_type != TokenType::TokenTypeLeftParen {
+            return Err("Expected '(' after function name".to_string());
+        }
+        let lparen_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftParen,
+            children: vec![],
+            value: None,
+        };
+
+        let mut args_children = Vec::new();
+        if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightParen) {
+            loop {
+                let expr = self.parse_expression()?;
+                args_children.push(expr);
+                if self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeComma) {
+                    self.consume();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if self.consume().token_type != TokenType::TokenTypeRightParen {
+            return Err("Expected ')' after args".to_string());
+        }
+        let rparen_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightParen,
+            children: vec![],
+            value: None,
+        };
+
+        if self.consume().token_type != TokenType::TokenTypeSemicolon {
+            return Err("Expected ';' after function call".to_string());
+        }
+        let semi_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalSemicolon,
+            children: vec![],
+            value: None,
+        };
+
+        let mut children = vec![ident_terminal, lparen_terminal];
+        children.extend(args_children);
+        children.push(rparen_terminal);
+        children.push(semi_terminal);
+
+        Ok(ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolNodeFunctionCall,
+            children,
+            value: None,
+        })
+    }
+
+    fn parse_return(&mut self) -> Result<ParseTreeNode, String> {
+        // "return" Expr ";"
+        let ret_token = self.consume();
+        let ret_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalReturn,
+            children: vec![],
+            value: None,
+        };
+
+        let expr = self.parse_expression()?;
+
+        if self.consume().token_type != TokenType::TokenTypeSemicolon {
+            return Err("Expected ';' after return".to_string());
+        }
+        let semi_terminal = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalSemicolon,
+            children: vec![],
+            value: None,
+        };
+
+        Ok(ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolNodeReturn,
+            children: vec![ret_terminal, expr, semi_terminal],
+            value: None,
+        })
     }
 
     fn parse_exit(&mut self) -> Result<ParseTreeNode, String> {
@@ -497,7 +783,6 @@ impl Parser {
                     value: None,
                 })
             }
-
             TokenType::TokenTypeFloatLiteral => {
                 let child = ParseTreeNode {
                     symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFloatLiteral,
@@ -781,6 +1066,20 @@ impl Parser {
                 symbol: ParseTreeSymbol::ParseTreeSymbolNodeType,
                 children: vec![ParseTreeNode {
                     symbol: ParseTreeSymbol::ParseTreeSymbolTerminalBool,
+                    children: Vec::new(),
+                    value: None,
+                }],
+                value: None,
+            };
+            self.consume();
+            Ok(node)
+        } else if self.current() != None
+            && self.current().unwrap().token_type == TokenType::TokenTypeTypeVoid
+        {
+            let node = ParseTreeNode {
+                symbol: ParseTreeSymbol::ParseTreeSymbolNodeType,
+                children: vec![ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolTerminalVoid,
                     children: Vec::new(),
                     value: None,
                 }],
@@ -1137,24 +1436,28 @@ impl Parser {
             }
 
             ParseTreeSymbol::ParseTreeSymbolNodeVariableAssignment => {
-                if let Some(terminal_id_node) = parse_tree
+                let identifier_node = parse_tree
                     .children
                     .iter()
                     .find(|c| c.symbol == ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier)
-                {
-                    let name = terminal_id_node.value.as_ref().expect("Missing terminal");
-                    let entry = self.lookup_in_scope(name).unwrap();
+                    .expect("Variable node has no terminal identifier");
+                
+                let name = identifier_node.value.as_ref().unwrap().clone();
 
-                    AbstractSyntaxTreeNode {
-                        symbol:
-                            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment {
-                                name: name.to_string(),
-                                value: entry.var_value.clone(),
-                            },
-                        children: Vec::new(),
-                    }
-                } else {
-                    panic!("Variable node has no terminal identifier");
+                let expr_node = parse_tree
+                    .children
+                    .iter()
+                    .find(|c| c.symbol == ParseTreeSymbol::ParseTreeSymbolNodeExpression)
+                    .expect("Variable node has no expression");
+                
+                let value_expr = self.build_expr(expr_node);
+
+                AbstractSyntaxTreeNode {
+                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment {
+                        name,
+                        value: value_expr,
+                    },
+                    children: Vec::new(),
                 }
             }
 
@@ -1281,6 +1584,140 @@ impl Parser {
 
                 AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body },
+                    children: vec![],
+                }
+            }
+
+            ParseTreeSymbol::ParseTreeSymbolNodeFunctionDec => {
+                // Children:
+                // [0] fn
+                // [1] name
+                // [2] (
+                // [...] params (Type, Ident) [and commas]
+                // [n] )
+                // [n+1] ->
+                // [n+2] Return Type
+                // [n+3] Block
+                let name = self
+                    .find_terminal(&parse_tree.children[1])
+                    .value
+                    .as_ref()
+                    .unwrap()
+                    .clone();
+
+                let mut params = Vec::new();
+                let mut i = 3;
+                while i < parse_tree.children.len() {
+                    let child = &parse_tree.children[i];
+                    if child.symbol == ParseTreeSymbol::ParseTreeSymbolTerminalRightParen {
+                        i += 1;
+                        break;
+                    }
+                    if child.symbol == ParseTreeSymbol::ParseTreeSymbolTerminalComma {
+                        i += 1;
+                        continue;
+                    }
+
+                    // Must be Type
+                    let type_node = child;
+                    let type_val = self.match_type_in_scope(type_node);
+                    i += 1;
+
+                    // Next is Ident
+                    let ident_child = &parse_tree.children[i];
+                    let pname = ident_child.value.as_ref().unwrap().clone();
+                    params.push((type_val, pname));
+                    i += 1;
+                }
+
+                // After loop, i points after ')'
+                // i points to '->'
+                i += 1; // skip ->
+
+                let return_type_node = &parse_tree.children[i];
+                let return_type = self.match_type_in_scope(return_type_node);
+                i += 1;
+
+                let block_node = &parse_tree.children[i];
+
+                self.push_scope();
+                for (ptype, pname) in &params {
+                    self.insert_in_scope(
+                        pname.clone(),
+                        VarEntry {
+                            var_type: ptype.clone(),
+                            var_value: Expr::Int(0),
+                        },
+                    );
+                }
+
+                // block logic uses find_statements
+                let mut stmt_nodes = Vec::new();
+                self.find_statements(block_node, &mut stmt_nodes);
+                let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
+                    .into_iter()
+                    .map(|stmt| self.build_ast(stmt))
+                    .collect();
+                
+                self.pop_scope();
+
+                AbstractSyntaxTreeNode {
+                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec {
+                        name,
+                        params,
+                        return_type,
+                        body,
+                    },
+                    children: vec![],
+                }
+            }
+            
+            ParseTreeSymbol::ParseTreeSymbolNodeBlock => {
+                self.push_scope();
+                let mut stmt_nodes = Vec::new();
+                self.find_statements(parse_tree, &mut stmt_nodes);
+
+                let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
+                    .into_iter()
+                    .map(|stmt| self.build_ast(stmt))
+                    .collect();
+                self.pop_scope();
+
+                AbstractSyntaxTreeNode {
+                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body },
+                    children: vec![],
+                }
+            }
+
+            ParseTreeSymbol::ParseTreeSymbolNodeFunctionCall => {
+                let name = self
+                    .find_terminal(&parse_tree.children[0])
+                    .value
+                    .as_ref()
+                    .unwrap()
+                    .clone();
+
+                let mut args = Vec::new();
+                for child in &parse_tree.children {
+                    if child.symbol == ParseTreeSymbol::ParseTreeSymbolNodeExpression {
+                        args.push(self.build_expr(child));
+                    }
+                }
+
+                AbstractSyntaxTreeNode {
+                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall {
+                        name,
+                        args,
+                    },
+                    children: vec![],
+                }
+            }
+
+            ParseTreeSymbol::ParseTreeSymbolNodeReturn => {
+                // [0] return [1] expr [2] ;
+                let expr = self.build_expr(&parse_tree.children[1]);
+                AbstractSyntaxTreeNode {
+                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(expr),
                     children: vec![],
                 }
             }
@@ -1492,6 +1929,7 @@ impl Parser {
             ParseTreeSymbol::ParseTreeSymbolTerminalF32S => Type::F32S,
             ParseTreeSymbol::ParseTreeSymbolTerminalBool => Type::Bool,
             ParseTreeSymbol::ParseTreeSymbolTerminalChar => Type::Char,
+            ParseTreeSymbol::ParseTreeSymbolTerminalVoid => Type::Void,
             _ => panic!("Unsupported type node"),
         }
     }
