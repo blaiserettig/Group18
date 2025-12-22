@@ -11,7 +11,8 @@ Else            → "else" If | "else" Block | ε
 FunctionDec     → "fn" Ident "(" (Type Ident)* ")" "->" Type Block
 FunctionCall    → Ident "(" Expr* ")" ";"
 Block           → "{" Stmt* "}"
-Type            → i32s | f32s | bool | char | string | void
+Type            → BaseType ("[" "]")*
+BaseType        → i32s | f32s | bool | char | string | void
 Ident           → *user-defined non-keyword*
 Exit            → "exit" Expr ";"
 Return          → "return" [Expr] ";"
@@ -20,7 +21,9 @@ Equality        → Comparison (("==" | "!=") Comparison)*
 Comparison      → Add (("<" | "<=" | ">" | ">=") Add)*
 Add             → Mul (("+" | "-") Mul)*
 Mul             → Primary (("*" | "/") Primary)*
-Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | String_Lit | Ident | "(" Expr ")"
+Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | String_Lit | Ident | "(" Expr ")" | ArrayLiteral | ArrayIndex
+ArrayLiteral    → "[" (Expr ("," Expr)*)? "]"
+ArrayIndex      → Ident "[" Expr "]"
 Int_Lit         → *integer literal*
 Int_Lit         → *floating point literal*
 Int_Lit         → *boolean point literal*

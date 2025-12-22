@@ -174,7 +174,21 @@ impl Generator {
                     self.scopes[0].insert(name.clone(), VariableLocation::Global);
                     self.match_variable_helper(name, value, writer);
                 } else { // local
-                    self.current_stack_offset -= 8; // allocate 8 bytes... 4 for i32/f32, but aligned to 8
+                    let size = match value {
+                        Expr::ArrayLiteral(elements) => {
+                            if elements.is_empty() { 0 } else { (elements.len() as i32) * 8 }
+                        }
+                        _ => 8,
+                    };
+                    let allocation_size = if size == 0 && !matches!(value, Expr::ArrayLiteral(_)) { 8 } else { size };
+                    // let's use 8 as minimum unless it's a specific empty array literal
+                    let final_size = if let Expr::ArrayLiteral(e) = value {
+                        if e.is_empty() { 8 } else { allocation_size.max(8) }
+                    } else {
+                        allocation_size.max(8)
+                    };
+
+                    self.current_stack_offset -= final_size;
                     let offset = self.current_stack_offset;
                     self.scopes.last_mut().unwrap().insert(name.clone(), VariableLocation::Local(offset));
                     
@@ -332,6 +346,29 @@ impl Generator {
                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
                 }
             }
+            Expr::ArrayLiteral(elements) => {
+                for (i, elem) in elements.iter().enumerate() {
+                    let elem_offset = i as i32 * 8;
+                    match location {
+                        VariableLocation::Global => {
+                            self.generate_expr_into_register(elem, "eax", writer);
+                            writeln!(writer, "    mov dword [{} + {}], eax", name, elem_offset).unwrap();
+                        }
+                        VariableLocation::Local(base_off) => {
+                            self.generate_expr_into_register(elem, "eax", writer);
+                            let final_off = base_off + elem_offset;
+                            writeln!(writer, "    mov dword [rbp{}], eax", if final_off < 0 { format!("{}", final_off) } else { format!("+{}", final_off) }).unwrap();
+                        }
+                    }
+                }
+            }
+            Expr::ArrayIndex { array: _, index: _ } => {
+                self.generate_expr_into_register(value, "eax", writer);
+                match location {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+            }
         }
     }
     
@@ -398,6 +435,29 @@ impl Generator {
                 }
                 if reg != "eax" {
                     writeln!(writer, "    mov {}, eax", reg).unwrap();
+                }
+            }
+            Expr::ArrayLiteral(_) => {
+                panic!("Array literal cannot be evaluated into a single register (yet)");
+            }
+            Expr::ArrayIndex { array, index } => {
+                self.generate_expr_into_register(index, "ebx", writer);
+                
+                let array_ident = match &**array {
+                    Expr::Ident(name) => name,
+                    _ => panic!("Only identifiers can be indexed for now"),
+                };
+                let loc = self.lookup_var(array_ident);
+                
+                match loc {
+                    VariableLocation::Local(base_offset) => {
+                        writeln!(writer, "    movsxd rbx, ebx").unwrap(); // sign extend index
+                        writeln!(writer, "    mov {}, dword [rbp + {} + rbx * 8]", reg, base_offset).unwrap();
+                    }
+                    VariableLocation::Global => {
+                         writeln!(writer, "    movsxd rbx, ebx").unwrap();
+                         writeln!(writer, "    mov {}, dword [{} + rbx * 8]", reg, array_ident).unwrap();
+                    }
                 }
             }
         }

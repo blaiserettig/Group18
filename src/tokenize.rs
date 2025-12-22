@@ -41,6 +41,8 @@ pub enum TokenType {
     TokenTypeTypeVoid,
     TokenTypeArrow,
     TokenTypeComma,
+    TokenTypeLeftBracket,
+    TokenTypeRightBracket,
 }
 
 #[derive(Debug, PartialEq)]
@@ -376,6 +378,22 @@ impl Tokenizer {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeRightParen,
+                    value: None,
+                    line: start_line,
+                    column: start_column,
+                });
+            } else if self.current().unwrap() == '[' {
+                self.consume();
+                tokens.push(Token {
+                    token_type: TokenType::TokenTypeLeftBracket,
+                    value: None,
+                    line: start_line,
+                    column: start_column,
+                });
+            } else if self.current().unwrap() == ']' {
+                self.consume();
+                tokens.push(Token {
+                    token_type: TokenType::TokenTypeRightBracket,
                     value: None,
                     line: start_line,
                     column: start_column,
