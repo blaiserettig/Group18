@@ -1,0 +1,31 @@
+fn is_less_than(char a, char b) -> bool {
+    return a < b;
+}
+
+fn is_equal(char a, char b) -> bool {
+    return a == b;
+}
+
+fn main() -> i32s {
+    i32s x = 0;
+    for i in 0 to 10 {              
+        x = x + i;                  
+    }
+
+    {                               
+        bool y = false;             
+        f32s z = 3.14159;
+    }
+
+    i32s y = ((x + 10) * 5) / 2;    
+    char c = 'a';
+    char d = 'b';
+
+    if is_less_than(c, d) {                      
+        return 2;
+    } else if is_equal(c, d) {
+        return 1;
+    } else {                        
+        return 0;
+    }
+}

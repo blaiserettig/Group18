@@ -1,0 +1,3 @@
+fn not_main() -> i32s {
+    return 0;
+}

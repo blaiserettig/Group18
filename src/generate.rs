@@ -66,11 +66,14 @@ impl Generator {
 
                 writeln!(writer, "main_entry:").unwrap();
 
-                for stmt in statements {
-                    self.generate_x64(stmt, writer);
-                }
-
-                writeln!(writer, "    ret").unwrap();
+                // call mandatory main fn
+                writeln!(writer, "    call func_main").unwrap();
+                
+                // return value of main is in eax... use it for exit process
+                writeln!(writer, "    mov rcx, rax").unwrap();
+                writeln!(writer, "    and rsp, -16").unwrap();
+                writeln!(writer, "    sub rsp, 32").unwrap();
+                writeln!(writer, "    call ExitProcess").unwrap();
 
                 if !self.global_vars.is_empty() {
                     writeln!(writer, "\nsegment .bss").unwrap();
@@ -101,7 +104,15 @@ impl Generator {
 
                 self.scopes.push(HashMap::new());
                 self.current_stack_offset = 0;
-    
+                let mut total_locals_size = 0;
+                for stmt in body {
+                    total_locals_size += self.calculate_stack_size(stmt);
+                }
+
+                if total_locals_size > 0 {
+                    writeln!(writer, "    sub rsp, {}", total_locals_size).unwrap();
+                }
+
                 let mut param_offset = 16;
                 // params vector is left to right
                 // if pushed R->L, first param is closest to RBP
@@ -174,10 +185,10 @@ impl Generator {
                     self.scopes[0].insert(name.clone(), VariableLocation::Global);
                     self.match_variable_helper(name, value, writer);
                 } else { // local
-                    self.current_stack_offset -= 8; // allocate 8 bytes... 4 for i32/f32, but aligned to 8
+                    let size = 8; // Always allocate 8 bytes (pointers or 32-bit values)
+                    self.current_stack_offset -= size;
                     let offset = self.current_stack_offset;
                     self.scopes.last_mut().unwrap().insert(name.clone(), VariableLocation::Local(offset));
-                    
                     self.match_variable_helper(name, value, writer);
                 }
             }
@@ -196,22 +207,34 @@ impl Generator {
                 body,
             } => {
                 if self.scopes.len() == 1 {
-                     self.global_vars.insert(iterator_name.clone());
-                     self.scopes[0].insert(iterator_name.clone(), VariableLocation::Global);
+                    self.global_vars.insert(iterator_name.clone());
+                    self.scopes[0].insert(iterator_name.clone(), VariableLocation::Global);
                 } else {
-                     self.current_stack_offset -= 8;
-                     self.scopes.last_mut().unwrap().insert(iterator_name.clone(), VariableLocation::Local(self.current_stack_offset));
+                    self.current_stack_offset -= 8;
+                    self.scopes
+                        .last_mut()
+                        .unwrap()
+                        .insert(iterator_name.clone(), VariableLocation::Local(self.current_stack_offset));
                 }
 
                 let loop_label = format!("loop_begin_{}", iterator_name);
                 let end_label = format!("loop_end_{}", iterator_name);
 
                 self.generate_expr_into_register(iterator_begin, "eax", writer);
-                writeln!(writer, "    mov dword [{}], eax", iterator_name).unwrap();
+                
+                let iter_loc = self.lookup_var(iterator_name);
+                match iter_loc {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", iterator_name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
 
                 writeln!(writer, "{}:", loop_label).unwrap();
 
-                writeln!(writer, "    mov eax, dword [{}]", iterator_name).unwrap();
+                match iter_loc {
+                    VariableLocation::Global => writeln!(writer, "    mov eax, dword [{}]", iterator_name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov eax, dword [rbp{}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
+                
                 self.generate_expr_into_register(iterator_end, "ebx", writer);
                 writeln!(writer, "    cmp eax, ebx").unwrap();
                 writeln!(writer, "    jg {}", end_label).unwrap();
@@ -220,9 +243,15 @@ impl Generator {
                     self.generate_x64(stmt, writer);
                 }
 
-                writeln!(writer, "    mov eax, dword [{}]", iterator_name).unwrap();
+                match iter_loc {
+                    VariableLocation::Global => writeln!(writer, "    mov eax, dword [{}]", iterator_name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov eax, dword [rbp{}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
                 writeln!(writer, "    inc eax").unwrap();
-                writeln!(writer, "    mov dword [{}], eax", iterator_name).unwrap();
+                match iter_loc {
+                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", iterator_name).unwrap(),
+                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+                }
 
                 writeln!(writer, "    jmp {}", loop_label).unwrap();
 
@@ -253,84 +282,15 @@ impl Generator {
     ) {
         let location = self.lookup_var(name);
         
-        match value {
-            Expr::Int(i) => {
-                match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, i).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, i).unwrap(),
-                }
+        // Evaluate expression into rax
+        self.generate_expr_into_register(value, "rax", writer);
+        
+        match location {
+            VariableLocation::Global => {
+                writeln!(writer, "    mov qword [{}], rax", name).unwrap();
             }
-            Expr::Ident(ident) => {
-                // read from ident into eax
-                match self.lookup_var(ident) {
-                    VariableLocation::Global => writeln!(writer, "    mov eax, dword [{}]", ident).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov eax, dword [rbp{}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
-                }
-                
-                // write eax to name
-                match location {
-                     VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
-                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
-                }
-            }
-            Expr::Float(f) => {
-                let bits = f.to_bits();
-                match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, bits).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, bits).unwrap(),
-                }
-            }
-            Expr::Bool(b) => {
-                let val = if *b { 1 } else { 0 };
-                 match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, val).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, val).unwrap(),
-                }
-            }
-            Expr::Char(c) => {
-                 match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], {}", name, *c as u32).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], {}", if off < 0 { format!("{}", off) } else { format!("+{}", off) }, *c as u32).unwrap(),
-                }
-            }
-            Expr::String(s) => {
-                // get or create label
-                let label = if let Some(existing_label) = self.string_literals.get(s) {
-                    existing_label.clone()
-                } else {
-                    let new_label = format!("str_{}", self.string_counter);
-                    self.string_counter += 1;
-                    self.string_literals.insert(s.clone(), new_label.clone());
-                    new_label
-                };
-                writeln!(writer, "    lea rax, [{}]", label).unwrap();
-                match location {
-                    VariableLocation::Global => writeln!(writer, "    mov qword [{}], rax", name).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov qword [rbp{}], rax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
-                }
-            }
-            Expr::BinaryOp { left, op, right } => {
-                self.generate_binary_op(left, op, right, writer);
-                 match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
-                }
-            }
-            Expr::FunctionCall { name: func_name, args } => {
-                for arg in args.iter().rev() {
-                    self.generate_expr_into_register(arg, "eax", writer);
-                    writeln!(writer, "    push rax").unwrap();
-                }
-                let label = format!("func_{}", func_name);
-                writeln!(writer, "    call {}", label).unwrap();
-                if !args.is_empty() {
-                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
-                }
-
-                 match location {
-                    VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", name).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
-                }
+            VariableLocation::Local(off) => {
+                writeln!(writer, "    mov qword [rbp{0}], rax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap();
             }
         }
     }
@@ -354,12 +314,27 @@ impl Generator {
             Expr::Int(i) => {
                 writeln!(writer, "    mov {}, {}", reg, i).unwrap();
             }
-            Expr::Ident(name) => {
-                match self.lookup_var(name) {
-                    VariableLocation::Global => writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap(),
-                    VariableLocation::Local(off) => writeln!(writer, "    mov {}, dword [rbp{}]", reg, if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
+            Expr::Ident(name) => match self.lookup_var(name) {
+                VariableLocation::Global => {
+                    if reg.starts_with('e') {
+                        writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap()
+                    } else {
+                        writeln!(writer, "    mov {}, qword [{}]", reg, name).unwrap()
+                    }
                 }
-            }
+                VariableLocation::Local(off) => {
+                    let off_str = if off < 0 {
+                        format!("{}", off)
+                    } else {
+                        format!("+{}", off)
+                    };
+                    if reg.starts_with('e') {
+                        writeln!(writer, "    mov {}, dword [rbp{}]", reg, off_str).unwrap()
+                    } else {
+                        writeln!(writer, "    mov {}, qword [rbp{}]", reg, off_str).unwrap()
+                    }
+                }
+            },
             Expr::Float(f) => {
                 let bits = f.to_bits();
                 writeln!(writer, "    mov {}, {}", reg, bits).unwrap();
@@ -384,10 +359,14 @@ impl Generator {
             }
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
-                writeln!(writer, "    mov {}, eax", reg).unwrap();
+                if reg != "eax" && reg != "rax" {
+                    writeln!(writer, "    mov {}, eax", reg).unwrap();
+                } else if reg == "rax" {
+                    writeln!(writer, "    mov eax, eax").unwrap(); // Zero-extend eax into rax
+                }
             }
             Expr::FunctionCall { name, args } => {
-                 for arg in args.iter().rev() {
+                for arg in args.iter().rev() {
                     self.generate_expr_into_register(arg, "eax", writer);
                     writeln!(writer, "    push rax").unwrap();
                 }
@@ -396,8 +375,72 @@ impl Generator {
                 if !args.is_empty() {
                     writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
                 }
-                if reg != "eax" {
-                    writeln!(writer, "    mov {}, eax", reg).unwrap();
+                if reg != "rax" {
+                    if reg == "eax" {
+                        writeln!(writer, "    mov eax, eax").unwrap();
+                    } else {
+                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                    }
+                }
+            }
+            Expr::ArrayLiteral(elements) => {
+                let size = (elements.len() as i32) * 8;
+                self.current_stack_offset -= size;
+                let addr_offset = self.current_stack_offset;
+                
+                // Initialize elements
+                for (i, elem) in elements.iter().enumerate() {
+                    let elem_offset = i as i32 * 8;
+                    self.generate_expr_into_register(elem, "rax", writer);
+                    let final_off = addr_offset + elem_offset;
+                    writeln!(writer, "    mov qword [rbp{}], rax", if final_off < 0 { format!("{}", final_off) } else { format!("+{}", final_off) }).unwrap();
+                }
+                
+                // Return start address in reg
+                writeln!(writer, "    lea rax, [rbp{}]", if addr_offset < 0 { format!("{}", addr_offset) } else { format!("+{}", addr_offset) }).unwrap();
+                if reg != "rax" {
+                    if reg == "eax" {
+                        writeln!(writer, "    mov eax, eax").unwrap();
+                    } else {
+                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                    }
+                }
+            }
+            Expr::ArrayIndex { array, index } => {
+                // 1. Eval index into ebx
+                self.generate_expr_into_register(index, "ebx", writer);
+                writeln!(writer, "    movsxd rbx, ebx").unwrap(); // sign extend index
+
+                // Save rbx during base address evaluation (potentially nested)
+                writeln!(writer, "    push rbx").unwrap();
+
+                // 2. Eval base array into rax (address)
+                match &**array {
+                    Expr::Ident(name) => {
+                        let loc = self.lookup_var(name);
+                        match loc {
+                            VariableLocation::Local(off) => {
+                                // Load the pointer into rax
+                                writeln!(writer, "    mov rax, qword [rbp{0}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap();
+                            }
+                            VariableLocation::Global => {
+                                writeln!(writer, "    mov rax, qword [{}]", name).unwrap();
+                            }
+                        }
+                    }
+                    _ => {
+                        self.generate_expr_into_register(array, "rax", writer);
+                    }
+                }
+
+                // Restore rbx
+                writeln!(writer, "    pop rbx").unwrap();
+                
+                // 3. Access element: [rax + rbx * 8]
+                if reg.starts_with('e') {
+                    writeln!(writer, "    mov {}, dword [rax + rbx * 8]", reg).unwrap();
+                } else {
+                    writeln!(writer, "    mov {}, qword [rax + rbx * 8]", reg).unwrap();
                 }
             }
         }
@@ -410,14 +453,14 @@ impl Generator {
         right: &Expr,
         writer: &mut BufWriter<&File>,
     ) {
-        // Eval left into eax
-        self.generate_expr_into_register(left, "eax", writer);
+        // Eval left into rax
+        self.generate_expr_into_register(left, "rax", writer);
 
         // Push eax (save left value)
         writeln!(writer, "    push rax").unwrap();
 
-        // Eval right into ebx
-        self.generate_expr_into_register(right, "ebx", writer);
+        // Eval right into rbx
+        self.generate_expr_into_register(right, "rbx", writer);
 
         // Restore left into eax
         writeln!(writer, "    pop rax").unwrap();
@@ -517,5 +560,96 @@ impl Generator {
         }
 
         writeln!(writer, "{}:", end_label).unwrap();
+    }
+
+    fn calculate_stack_size(&self, node: &AbstractSyntaxTreeNode) -> i32 {
+        let mut size = 0;
+        match &node.symbol {
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration { value, .. } => {
+                size += 8;
+                size += self.calculate_expr_stack_size(value);
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment { value, .. } => {
+                size += self.calculate_expr_stack_size(value);
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(opt_expr) => {
+                if let Some(expr) = opt_expr {
+                    size += self.calculate_expr_stack_size(expr);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolExit(expr) => {
+                size += self.calculate_expr_stack_size(expr);
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFor {
+                iterator_begin,
+                iterator_end,
+                body,
+                ..
+            } => {
+                size += 8; // iterator
+                size += self.calculate_expr_stack_size(iterator_begin);
+                size += self.calculate_expr_stack_size(iterator_end);
+                for stmt in body {
+                    size += self.calculate_stack_size(stmt);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolIf {
+                condition,
+                body,
+                else_body,
+                ..
+            } => {
+                size += self.calculate_expr_stack_size(condition);
+                for stmt in body {
+                    size += self.calculate_stack_size(stmt);
+                }
+                if let Some(else_node) = else_body {
+                    size += self.calculate_stack_size(else_node);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body } => {
+                for stmt in body {
+                    size += self.calculate_stack_size(stmt);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { args, .. } => {
+                for arg in args {
+                    size += self.calculate_expr_stack_size(arg);
+                }
+            }
+            _ => {
+                for child in &node.children {
+                    size += self.calculate_stack_size(child);
+                }
+            }
+        }
+        size
+    }
+
+    fn calculate_expr_stack_size(&self, expr: &Expr) -> i32 {
+        let mut size = 0;
+        match expr {
+            Expr::ArrayLiteral(elements) => {
+                size += (elements.len() as i32) * 8;
+                for elem in elements {
+                    size += self.calculate_expr_stack_size(elem);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                size += self.calculate_expr_stack_size(left);
+                size += self.calculate_expr_stack_size(right);
+            }
+            Expr::FunctionCall { args, .. } => {
+                for arg in args {
+                    size += self.calculate_expr_stack_size(arg);
+                }
+            }
+            Expr::ArrayIndex { array, index } => {
+                size += self.calculate_expr_stack_size(array);
+                size += self.calculate_expr_stack_size(index);
+            }
+            _ => {}
+        }
+        size
     }
 }

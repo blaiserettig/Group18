@@ -107,6 +107,10 @@ pub enum ParseTreeSymbol {
     ParseTreeSymbolTerminalVoid,
     ParseTreeSymbolTerminalArrow,
     ParseTreeSymbolTerminalComma,
+    ParseTreeSymbolNodeArrayLiteral,
+    ParseTreeSymbolNodeArrayIndex,
+    ParseTreeSymbolTerminalLeftBracket,
+    ParseTreeSymbolTerminalRightBracket,
 }
 
 #[derive(Debug)]
@@ -124,6 +128,7 @@ pub enum Type {
     Char,
     String,
     Void,
+    Array(Box<Type>),
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +147,11 @@ pub enum Expr {
     FunctionCall {
         name: String,
         args: Vec<Expr>,
+    },
+    ArrayLiteral(Vec<Expr>),
+    ArrayIndex {
+        array: Box<Expr>,
+        index: Box<Expr>,
     },
 }
 
@@ -259,7 +269,6 @@ impl Parser {
     }
 
     fn parse_entry(&mut self) -> ParseTreeNode {
-        self.consume();
 
         let mut entry_node = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolNodeEntryPoint,
@@ -380,7 +389,7 @@ impl Parser {
 
     fn parse_function_dec(&mut self) -> Result<ParseTreeNode, String> {
         // "fn" Ident "(" Ident* ")" "->" Type Block
-        let fn_token = self.consume();
+        let _fn_token = self.consume();
         let fn_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFn,
             children: vec![],
@@ -542,9 +551,80 @@ impl Parser {
         })
     }
 
+    fn parse_array_literal(&mut self) -> Result<ParseTreeNode, String> {
+        let left_bracket = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftBracket,
+            children: vec![],
+            value: None,
+        };
+        self.consume(); 
+
+        let mut children = vec![left_bracket];
+        if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightBracket) {
+            loop {
+                children.push(self.parse_expression()?);
+                if self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeComma) {
+                    let comma = ParseTreeNode {
+                        symbol: ParseTreeSymbol::ParseTreeSymbolTerminalComma,
+                        children: vec![],
+                        value: None,
+                    };
+                    self.consume();
+                    children.push(comma);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightBracket) {
+            return Err(self.error_at_current("Expected ']' at end of array literal"));
+        }
+        let right_bracket = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightBracket,
+            children: vec![],
+            value: None,
+        };
+        self.consume();
+        children.push(right_bracket);
+
+        Ok(ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolNodeArrayLiteral,
+            children,
+            value: None,
+        })
+    }
+
+    fn parse_array_index_expr(&mut self, base_node: ParseTreeNode) -> Result<ParseTreeNode, String> {
+        let left_bracket = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftBracket,
+            children: vec![],
+            value: None,
+        };
+        self.consume(); // [
+
+        let index_expr = self.parse_expression()?;
+
+        if self.current().map(|t| t.token_type) != Some(TokenType::TokenTypeRightBracket) {
+            return Err(self.error_at_current("Expected ']' after array index"));
+        }
+        let right_bracket = ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightBracket,
+            children: vec![],
+            value: None,
+        };
+        self.consume();
+
+        Ok(ParseTreeNode {
+            symbol: ParseTreeSymbol::ParseTreeSymbolNodeArrayIndex,
+            children: vec![base_node, left_bracket, index_expr, right_bracket],
+            value: None,
+        })
+    }
+
     fn parse_return(&mut self) -> Result<ParseTreeNode, String> {
         // "return" Expr ";"
-        let ret_token = self.consume();
+        let _ret_token = self.consume();
         let ret_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalReturn,
             children: vec![],
@@ -866,26 +946,63 @@ impl Parser {
             }
 
             TokenType::TokenTypeIdentifier => {
-                if self.tokens.get(self.token_index + 1).map(|t| t.token_type) == Some(TokenType::TokenTypeLeftParen) {
+                let next_type = self.tokens.get(self.token_index + 1).map(|t| t.token_type);
+                if next_type == Some(TokenType::TokenTypeLeftParen) {
                     let call_node = self.parse_function_call_expr()?;
-                    Ok(ParseTreeNode {
+                    let mut node = ParseTreeNode {
                         symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
                         children: vec![call_node],
                         value: None,
-                    })
+                    };
+                    
+                    // Possible indexing after function call: foo()[0]
+                    while self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeLeftBracket) {
+                        node = self.parse_array_index_expr(node)?;
+                        node = ParseTreeNode {
+                            symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
+                            children: vec![node],
+                            value: None,
+                        };
+                    }
+                    Ok(node)
                 } else {
-                    let child = ParseTreeNode {
+                    let ident_token = self.consume();
+                    let mut node = ParseTreeNode {
                         symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
                         children: Vec::new(),
-                        value: token.value.clone(),
+                        value: ident_token.value.clone(),
                     };
-                    self.consume();
+                    
+                    while self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeLeftBracket) {
+                        node = self.parse_array_index_expr(node)?;
+                    }
+
                     Ok(ParseTreeNode {
                         symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
-                        children: vec![child],
+                        children: vec![node],
                         value: None,
                     })
                 }
+            }
+
+            TokenType::TokenTypeLeftBracket => {
+                let array_lit = self.parse_array_literal()?;
+                let mut node = ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
+                    children: vec![array_lit],
+                    value: None,
+                };
+                
+                // Possible indexing after array literal: [1, 2, 3][0]
+                while self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeLeftBracket) {
+                    node = self.parse_array_index_expr(node)?;
+                    node = ParseTreeNode {
+                        symbol: ParseTreeSymbol::ParseTreeSymbolNodePrimary,
+                        children: vec![node],
+                        value: None,
+                    };
+                }
+                Ok(node)
             }
 
             TokenType::TokenTypeLeftParen => {
@@ -1080,6 +1197,39 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<ParseTreeNode, String> {
+        let mut type_node = self.parse_base_type()?;
+
+        while self.current() != None
+            && self.current().unwrap().token_type == TokenType::TokenTypeLeftBracket
+        {
+            self.consume();
+            if self.current() == None || self.current().unwrap().token_type != TokenType::TokenTypeRightBracket {
+                return Err(self.error_at_current("Expected ']' after '[' in array type"));
+            }
+            self.consume();
+
+            let right_bracket_terminal = ParseTreeNode {
+                symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightBracket,
+                children: vec![],
+                value: None,
+            };
+            let left_bracket_terminal = ParseTreeNode {
+                symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftBracket,
+                children: vec![],
+                value: None,
+            };
+
+            type_node = ParseTreeNode {
+                symbol: ParseTreeSymbol::ParseTreeSymbolNodeType,
+                children: vec![type_node, left_bracket_terminal, right_bracket_terminal],
+                value: None,
+            };
+        }
+
+        Ok(type_node)
+    }
+
+    fn parse_base_type(&mut self) -> Result<ParseTreeNode, String> {
         if self.current() != None
             && self.current().unwrap().token_type == TokenType::TokenTypeTypeI32S
         {
@@ -1400,26 +1550,46 @@ impl Parser {
                     panic!("TypeChecker: Undefined function '{}'", name);
                 }
             }
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    Type::Array(Box::new(Type::I32S))
+                } else {
+                    let elem_type = self.get_expr_type(&elements[0]);
+                    Type::Array(Box::new(elem_type))
+                }
+            }
+            Expr::ArrayIndex { array, index: _ } => {
+                let array_type = self.get_expr_type(array);
+                match array_type {
+                    Type::Array(inner) => *inner,
+                    _ => panic!("TypeChecker: Attempted to index non-array type"),
+                }
+            }
         }
     }
 
     pub fn build_ast(&mut self, parse_tree: &ParseTreeNode) -> AbstractSyntaxTreeNode {
         match parse_tree.symbol {
             ParseTreeSymbol::ParseTreeSymbolNodeEntryPoint => {
-                let entry_node = AbstractSyntaxTreeNode {
+                let body: Vec<AbstractSyntaxTreeNode> = parse_tree
+                    .children
+                    .iter()
+                    .filter_map(|child| match child.symbol {
+                        ParseTreeSymbol::ParseTreeSymbolNodeStatement | ParseTreeSymbol::ParseTreeSymbolNodeFunctionDec => {
+                            Some(self.build_ast(child))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                if self.functions.get("main").is_none() {
+                    panic!("Fatal: Program must contain a 'main' function.");
+                }
+
+                AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry,
-                    children: parse_tree
-                        .children
-                        .iter()
-                        .filter_map(|child| match child.symbol {
-                            ParseTreeSymbol::ParseTreeSymbolNodeStatement => {
-                                Some(self.build_ast(child))
-                            }
-                            _ => None,
-                        })
-                        .collect(),
-                };
-                entry_node
+                    children: body,
+                }
             }
 
             ParseTreeSymbol::ParseTreeSymbolNodeStatement => {
@@ -1510,10 +1680,12 @@ impl Parser {
                      panic!("TypeChecker: Mismatched types in declaration of '{}'. Expected {:?}, found {:?}", name, declared_type, actual_type);
                 }
 
+                self.insert_in_scope(name.clone(), VarEntry { var_type: declared_type.clone(), var_value: value_expr.clone() });
+
                 AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration {
                         name,
-                        type_: self.match_type_in_scope(type_node),
+                        type_: declared_type,
                         value: value_expr,
                     },
                     children: vec![],
@@ -1687,10 +1859,12 @@ impl Parser {
                 let mut stmt_nodes = Vec::new();
                 self.find_statements(parse_tree, &mut stmt_nodes);
 
+                self.push_scope();
                 let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
                     .into_iter()
                     .map(|stmt| self.build_ast(stmt))
                     .collect();
+                self.pop_scope();
 
                 AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body },
@@ -1785,23 +1959,6 @@ impl Parser {
                 }
             }
 
-            ParseTreeSymbol::ParseTreeSymbolNodeBlock => {
-                self.push_scope();
-                let mut stmt_nodes = Vec::new();
-                self.find_statements(parse_tree, &mut stmt_nodes);
-
-                let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
-                    .into_iter()
-                    .map(|stmt| self.build_ast(stmt))
-                    .collect();
-                self.pop_scope();
-
-                AbstractSyntaxTreeNode {
-                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body },
-                    children: vec![],
-                }
-            }
-
             ParseTreeSymbol::ParseTreeSymbolNodeFunctionCall => {
                 let name = self
                     .find_terminal(&parse_tree.children[0])
@@ -1877,36 +2034,39 @@ impl Parser {
             // children: "(", Expr, ")"
             return self.build_expr(&node.children[1]);
         }
+        self.build_inner_primary(&node.children[0])
+    }
 
-        // Simple literal / identifier
-        let child = node.children.first().unwrap();
-        match child.symbol {
+    fn build_inner_primary(&mut self, node: &ParseTreeNode) -> Expr {
+        match node.symbol {
+            ParseTreeSymbol::ParseTreeSymbolNodePrimary => {
+                // This case handles when a primary expression itself contains another primary expression,
+                // e.g., in array indexing where the base is a primary.
+                self.build_primary(node)
+            }
             ParseTreeSymbol::ParseTreeSymbolTerminalIntegerLiteral => {
-                let value = child.value.as_ref().unwrap().parse::<i32>().unwrap();
+                let value = node.value.as_ref().unwrap().parse::<i32>().unwrap();
                 Expr::Int(value)
             }
             ParseTreeSymbol::ParseTreeSymbolTerminalFloatLiteral => {
-                let value = child.value.as_ref().unwrap().parse::<f32>().unwrap();
+                let value = node.value.as_ref().unwrap().parse::<f32>().unwrap();
                 Expr::Float(value)
             }
             ParseTreeSymbol::ParseTreeSymbolTerminalBooleanLiteral => {
-                let value = child.value.as_ref().unwrap().parse::<bool>().unwrap();
+                let value = node.value.as_ref().unwrap().parse::<bool>().unwrap();
                 Expr::Bool(value)
             }
             ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier => {
-                let ident = child.value.as_ref().unwrap().clone();
+                let ident = node.value.as_ref().unwrap().clone();
                 if self.lookup_in_scope(&ident).is_none() {
                      panic!("Undefined identifier {}", ident);
                 }
                 Expr::Ident(ident)
             }
             ParseTreeSymbol::ParseTreeSymbolNodeFunctionCall => {
-                // child is the FunctionCall node
-                // children: Ident, (, Expr..., )
-                let name = child.children[0].value.as_ref().unwrap().clone();
-                
+                let name = node.children[0].value.as_ref().unwrap().clone();
                 let mut args = Vec::new();
-                for grandchild in &child.children {
+                for grandchild in &node.children {
                      if grandchild.symbol == ParseTreeSymbol::ParseTreeSymbolNodeExpression {
                          args.push(self.build_expr(grandchild));
                      }
@@ -1914,14 +2074,32 @@ impl Parser {
                 Expr::FunctionCall { name, args }
             }
             ParseTreeSymbol::ParseTreeSymbolTerminalCharLiteral => {
-                let value = child.value.as_ref().unwrap().chars().next().unwrap();
+                let value = node.value.as_ref().unwrap().chars().next().unwrap();
                 Expr::Char(value)
             }
             ParseTreeSymbol::ParseTreeSymbolTerminalStringLiteral => {
-                let value = child.value.as_ref().unwrap().clone();
+                let value = node.value.as_ref().unwrap().clone();
                 Expr::String(value)
             }
-            _ => panic!("Unsupported expression type: {:?}", child.symbol),
+            ParseTreeSymbol::ParseTreeSymbolNodeArrayLiteral => {
+                let mut elements = Vec::new();
+                for grandchild in &node.children {
+                    if grandchild.symbol == ParseTreeSymbol::ParseTreeSymbolNodeExpression {
+                        elements.push(self.build_expr(grandchild));
+                    }
+                }
+                Expr::ArrayLiteral(elements)
+            }
+            ParseTreeSymbol::ParseTreeSymbolNodeArrayIndex => {
+                // The first child of ParseTreeSymbolNodeArrayIndex is the base expression (e.g., an identifier or another array index)
+                let base_expr = self.build_inner_primary(&node.children[0]);
+                let index_expr = self.build_expr(&node.children[2]);
+                Expr::ArrayIndex {
+                    array: Box::new(base_expr),
+                    index: Box::new(index_expr),
+                }
+            }
+            _ => panic!("Unsupported expression type in primary: {:?}", node.symbol),
         }
     }
 
@@ -2081,14 +2259,21 @@ impl Parser {
     }
 
     fn match_type_in_scope(&mut self, node: &ParseTreeNode) -> Type {
-        match node.children.first().unwrap().symbol {
-            ParseTreeSymbol::ParseTreeSymbolTerminalI32S => Type::I32S,
-            ParseTreeSymbol::ParseTreeSymbolTerminalF32S => Type::F32S,
-            ParseTreeSymbol::ParseTreeSymbolTerminalBool => Type::Bool,
-            ParseTreeSymbol::ParseTreeSymbolTerminalChar => Type::Char,
-            ParseTreeSymbol::ParseTreeSymbolTerminalString => Type::String,
-            ParseTreeSymbol::ParseTreeSymbolTerminalVoid => Type::Void,
-            _ => panic!("Unsupported type node"),
+        // base types have terminal first child
+        if node.children.len() == 1 {
+            match node.children.first().unwrap().symbol {
+                ParseTreeSymbol::ParseTreeSymbolTerminalI32S => Type::I32S,
+                ParseTreeSymbol::ParseTreeSymbolTerminalF32S => Type::F32S,
+                ParseTreeSymbol::ParseTreeSymbolTerminalBool => Type::Bool,
+                ParseTreeSymbol::ParseTreeSymbolTerminalChar => Type::Char,
+                ParseTreeSymbol::ParseTreeSymbolTerminalString => Type::String,
+                ParseTreeSymbol::ParseTreeSymbolTerminalVoid => Type::Void,
+                _ => panic!("Unsupported type node"),
+            }
+        } else {
+            // array type: [inner_type, [, ]]
+            let inner_type = self.match_type_in_scope(&node.children[0]);
+            Type::Array(Box::new(inner_type))
         }
     }
 

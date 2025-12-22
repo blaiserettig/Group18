@@ -1,0 +1,16 @@
+fn add(i32s a, i32s b) -> i32s {
+    return a + b;
+}
+
+fn factorial(i32s n) -> i32s {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+fn main() -> i32s {
+    i32s res = add(5, 10);
+    i32s fact = factorial(5);
+    return res + fact;
+}

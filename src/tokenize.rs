@@ -2,7 +2,6 @@ use std::process::exit;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
-    TokenTypeEntryPoint,
     TokenTypeExit,
     TokenTypeIntegerLiteral,
     TokenTypeSemicolon,
@@ -41,6 +40,8 @@ pub enum TokenType {
     TokenTypeTypeVoid,
     TokenTypeArrow,
     TokenTypeComma,
+    TokenTypeLeftBracket,
+    TokenTypeRightBracket,
 }
 
 #[derive(Debug, PartialEq)]
@@ -71,13 +72,6 @@ impl Tokenizer {
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens: Vec<Token> = Vec::new();
         let mut buffer: Vec<char> = Vec::new();
-
-        tokens.push(Token {
-            token_type: TokenType::TokenTypeEntryPoint,
-            value: None,
-            line: 1,
-            column: 1,
-        });
 
         while !self.is_at_end() {
             if self.current().unwrap().is_ascii_whitespace() {
@@ -376,6 +370,22 @@ impl Tokenizer {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeRightParen,
+                    value: None,
+                    line: start_line,
+                    column: start_column,
+                });
+            } else if self.current().unwrap() == '[' {
+                self.consume();
+                tokens.push(Token {
+                    token_type: TokenType::TokenTypeLeftBracket,
+                    value: None,
+                    line: start_line,
+                    column: start_column,
+                });
+            } else if self.current().unwrap() == ']' {
+                self.consume();
+                tokens.push(Token {
+                    token_type: TokenType::TokenTypeRightBracket,
                     value: None,
                     line: start_line,
                     column: start_column,

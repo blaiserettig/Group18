@@ -1,0 +1,6 @@
+fn main() -> i32s {
+    {
+        i32s x = 10;
+    }
+    return x;
+}
