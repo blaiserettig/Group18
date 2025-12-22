@@ -3,15 +3,22 @@
 
 export function compile_g18(input: string): string;
 
+export function compile_wasm_g18(input: string): Uint8Array;
+
+export function compile_wat_g18(input: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly compile_g18: (a: number, b: number) => [number, number];
+  readonly compile_wat_g18: (a: number, b: number) => [number, number];
+  readonly compile_wasm_g18: (a: number, b: number) => [number, number, number, number];
   readonly __wbindgen_externrefs: WebAssembly.Table;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+  readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbindgen_start: () => void;
 }
 

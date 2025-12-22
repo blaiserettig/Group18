@@ -1763,9 +1763,11 @@ impl Parser {
                 let mut stmt_nodes = Vec::new();
                 self.find_statements(parse_tree, &mut stmt_nodes);
 
-                self.push_scope();
                 self.insert_in_scope(iterator_name.clone(), VarEntry { var_type: Type::I32S, var_value: Expr::Int(0) });
-
+                self.push_scope();
+                
+                let mut stmt_nodes = Vec::new();
+                self.find_statements(&parse_tree.children[6], &mut stmt_nodes);
                 let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
                     .into_iter()
                     .map(|stmt| self.build_ast(stmt))

@@ -19,10 +19,21 @@
             --text: #c9d1d9;
             --text-dim: #8b949e;
             --border: #30363d;
+
+            /* Syntax Highlighting Colors */
+            --syn-kw: #ff7b72;
+            --syn-type: #79c0ff;
+            --syn-str: #a5d6ff;
+            --syn-num: #d2a8ff;
+            --syn-atom: #ffa657;
+            --syn-comment: #8b949e;
+            --syn-fn: #d2a8ff;
         }
 
         * {
             box-sizing: border-box;
+            scrollbar-color: var(--border) transparent;
+            scrollbar-width: thin;
         }
 
         body {
@@ -33,6 +44,7 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
+            overflow: hidden;
         }
 
         header {
@@ -42,6 +54,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-shrink: 0;
         }
 
         .logo {
@@ -55,12 +68,34 @@
             grid-template-columns: 1fr 1fr;
             flex-grow: 1;
             overflow: hidden;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .output-container {
+            height: 200px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+            flex-shrink: 0;
+        }
+
+        .console {
+            flex-grow: 1;
+            padding: 1rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 13px;
+            color: #a6acb9;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            border-top: 1px solid var(--border);
+            background: #0d1117;
         }
 
         .pane {
             display: flex;
             flex-direction: column;
             border-right: 1px solid var(--border);
+            overflow: hidden;
         }
 
         .pane-header {
@@ -75,28 +110,103 @@
             color: var(--text-dim);
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            flex-shrink: 0;
         }
 
-        textarea,
-        pre {
+        .pane-content {
             flex-grow: 1;
+            overflow: hidden;
+            /* Important: panes handle their own internal scroll for the layered editor */
+            position: relative;
+        }
+
+        /* Standardized Editor Layers */
+        .editor-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: var(--bg);
+        }
+
+        #editor-textarea,
+        #editor-highlight {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             margin: 0;
             padding: 1.5rem;
-            border: none;
+            font-family: 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            white-space: pre;
+            word-wrap: normal;
+            overflow: auto;
+            tab-size: 4;
+            letter-spacing: normal;
+            font-variant-ligatures: normal;
+        }
+
+        #editor-textarea {
             background: transparent;
+            color: transparent;
+            caret-color: white;
+            z-index: 2;
+            resize: none;
+            border: none;
+            outline: none;
+        }
+
+        #editor-highlight {
+            z-index: 1;
             color: var(--text);
+            pointer-events: none;
+            background: transparent;
+        }
+
+        /* Syntax Colors */
+        .hl-kw {
+            color: var(--syn-kw);
+            font-weight: bold;
+        }
+
+        .hl-type {
+            color: var(--syn-type);
+        }
+
+        .hl-str {
+            color: var(--syn-str);
+        }
+
+        .hl-num {
+            color: var(--syn-num);
+        }
+
+        .hl-atom {
+            color: var(--syn-atom);
+        }
+
+        .hl-cmt {
+            color: var(--syn-comment);
+            font-style: italic;
+        }
+
+        .hl-fn {
+            color: var(--syn-fn);
+        }
+
+        pre#output {
+            margin: 0;
+            padding: 1.5rem;
+            color: #d19a66;
             font-family: 'Fira Code', monospace;
             font-size: 14px;
             line-height: 1.6;
-            outline: none;
-            resize: none;
-        }
-
-        pre {
+            white-space: pre;
             overflow: auto;
-            white-space: pre-wrap;
-            color: #d19a66;
-            /* Assembly-ish color */
+            height: 100%;
+            width: 100%;
         }
 
         .controls {
@@ -105,6 +215,7 @@
             border-top: 1px solid var(--border);
             display: flex;
             gap: 1rem;
+            flex-shrink: 0;
         }
 
         button {
@@ -114,6 +225,9 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .btn-primary {
@@ -121,9 +235,9 @@
             color: white;
         }
 
-        .btn-primary:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
+        .btn-run {
+            background: #e2b714;
+            color: #000;
         }
 
         .btn-secondary {
@@ -131,8 +245,10 @@
             color: var(--text);
         }
 
-        .btn-secondary:hover {
-            background: #3c444d;
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
         .status {
@@ -147,82 +263,217 @@
 <body>
     <header>
         <div class="logo">Group18 Compiler</div>
-        <div class="status" id="status">Ready</div>
+        <div class="status" id="status">WASM Loading...</div>
     </header>
 
     <main>
         <div class="pane">
             <div class="pane-header">Input (.g18)</div>
-            <textarea id="input" spellcheck="false">fn main() -> i32s {
-    print("Hello from the web!");
-    
-    i32s x = 0;
-    for i in 0 to 10 {
-        x = x + i;
-    }
-    
-    return x;
-}</textarea>
+            <div class="pane-content">
+                <div class="editor-container">
+                    <pre id="editor-highlight" aria-hidden="true"></pre>
+                    <textarea id="editor-textarea" spellcheck="false" autocomplete="off"></textarea>
+                </div>
+            </div>
         </div>
         <div class="pane" style="border-right: none;">
             <div class="pane-header">
-                NASM x64 Assembly
-                <button class="btn-secondary" style="padding: 2px 8px; font-size: 10px;"
-                    onclick="copyOutput()">Copy</button>
+                Output View
+                <div style="display: flex; gap: 5px;">
+                    <button class="btn-secondary" style="padding: 2px 8px; font-size: 10px;" id="toggle-view">View
+                        WAT</button>
+                    <button class="btn-secondary" style="padding: 2px 8px; font-size: 10px;"
+                        onclick="copyOutput()">Copy</button>
+                </div>
             </div>
-            <pre id="output">; Compiled assembly will appear here...</pre>
+            <div class="pane-content">
+                <pre id="output">; Compiled assembly will appear here...</pre>
+            </div>
         </div>
     </main>
 
+    <div class="output-container">
+        <div class="pane-header" style="background: #0d1117;">Console Output</div>
+        <div class="console" id="console">> Welcome to Group18 Compiler.</div>
+    </div>
+
     <div class="controls">
         <button class="btn-primary" id="compile-btn">Compile to ASM</button>
+        <button class="btn-run" id="run-btn">Run Program</button>
         <button class="btn-secondary" onclick="resetCode()">Reset</button>
     </div>
 
     <script type="module">
-        import init, { compile_g18 } from './pkg/Group18.js';
+        import init, { compile_g18, compile_wat_g18, compile_wasm_g18 } from './pkg/Group18.js';
 
-        async function run() {
+        const textarea = document.getElementById('editor-textarea');
+        const highlight = document.getElementById('editor-highlight');
+        const outputArea = document.getElementById('output');
+        const consoleArea = document.getElementById('console');
+        const compileBtn = document.getElementById('compile-btn');
+        const runBtn = document.getElementById('run-btn');
+        const toggleBtn = document.getElementById('toggle-view');
+
+        let currentView = 'asm';
+        let moduleMemory = null;
+
+        const initialCode = `fn main() -> i32s {
+    print("Hello from Group18 Wasm!");
+    
+    i32s x = 0;
+    for i in 1 to 10 {
+        x = x + i;
+    }
+    
+    print("Sum of 1..10 is:");
+    print(x);
+    
+    return x;
+}`;
+
+        // Robust Highlighting Logic
+        function updateHighlight() {
+            let code = textarea.value;
+            // Escape HTML
+            code = code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            // Syntax coloring
+            code = code.replace(/\/\/.*$/gm, '<span class="hl-cmt">$&</span>');
+            code = code.replace(/"([^"\\]|\\.)*"/g, '<span class="hl-str">$&</span>');
+            code = code.replace(/'([^'\\]|\\.)*'/g, '<span class="hl-str">$&</span>');
+            code = code.replace(/\b(fn|return|if|else|for|in|to|exit)\b/g, '<span class="hl-kw">$1</span>');
+            code = code.replace(/\b(print)\b/g, '<span class="hl-fn">$1</span>');
+            code = code.replace(/\b(i32s|f32s|bool|char|string)\b/g, '<span class="hl-type">$1</span>');
+            code = code.replace(/\b(true|false)\b/g, '<span class="hl-atom">$1</span>');
+            code = code.replace(/\b\d+(\.\d+)?\b/g, '<span class="hl-num">$&</span>');
+
+            highlight.innerHTML = code + (code.endsWith('\n') ? ' ' : '\n');
+            syncScroll();
+        }
+
+        function syncScroll() {
+            highlight.scrollTop = textarea.scrollTop;
+            highlight.scrollLeft = textarea.scrollLeft;
+        }
+
+        textarea.addEventListener('input', updateHighlight);
+        textarea.addEventListener('scroll', syncScroll);
+
+        // Tab & Auto-indent
+        textarea.addEventListener('keydown', e => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                textarea.value = textarea.value.substring(0, start) + "    " + textarea.value.substring(end);
+                textarea.selectionStart = textarea.selectionEnd = start + 4;
+                updateHighlight();
+            }
+            if (e.key === 'Enter') {
+                const start = textarea.selectionStart;
+                const lines = textarea.value.substring(0, start).split('\n');
+                const lastLine = lines[lines.length - 1];
+                const indent = lastLine.match(/^\s*/)[0];
+                const needsExtra = lastLine.trim().endsWith('{') ? '    ' : '';
+
+                // Allow the newline to happen, then adjust
+                setTimeout(() => {
+                    const pos = textarea.selectionStart;
+                    const before = textarea.value.substring(0, pos);
+                    const after = textarea.value.substring(pos);
+                    textarea.value = before + indent + needsExtra + after;
+                    textarea.selectionStart = textarea.selectionEnd = pos + indent.length + needsExtra.length;
+                    updateHighlight();
+                }, 0);
+            }
+        });
+
+        async function start() {
             try {
                 await init();
-                document.getElementById('status').textContent = "Library Loaded";
+                document.getElementById('status').textContent = "Ready";
             } catch (e) {
-                document.getElementById('status').textContent = "Error loading WASM";
+                document.getElementById('status').textContent = "Error Loading Library";
                 console.error(e);
             }
 
-            const inputArea = document.getElementById('input');
-            const outputArea = document.getElementById('output');
-            const btn = document.getElementById('compile-btn');
+            textarea.value = initialCode;
+            updateHighlight();
 
-            btn.onclick = () => {
-                const startTime = performance.now();
+            const runCompilation = () => {
+                const code = textarea.value;
+                const t0 = performance.now();
                 try {
-                    const result = compile_g18(inputArea.value);
-                    outputArea.textContent = result;
-                    const duration = (performance.now() - startTime).toFixed(2);
-                    document.getElementById('status').textContent = `Compiled in ${duration}ms`;
+                    if (currentView === 'asm') {
+                        outputArea.textContent = compile_g18(code);
+                    } else {
+                        outputArea.textContent = compile_wat_g18(code);
+                    }
+                    const t1 = performance.now();
+                    document.getElementById('status').textContent = `Compiled in ${(t1 - t0).toFixed(1)}ms`;
                 } catch (e) {
-                    outputArea.textContent = "Error during compilation:\n" + e;
-                    document.getElementById('status').textContent = "Compilation Failed";
+                    outputArea.textContent = "Compilation Error:\n" + e;
+                }
+            };
+
+            compileBtn.onclick = () => {
+                currentView = 'asm';
+                runCompilation();
+            };
+
+            toggleBtn.onclick = () => {
+                currentView = currentView === 'asm' ? 'wat' : 'asm';
+                toggleBtn.textContent = currentView === 'asm' ? 'View WAT' : 'View ASM';
+                runCompilation();
+            };
+
+            runBtn.onclick = async () => {
+                consoleArea.textContent = "> Compiling and Running...\n";
+                document.querySelector('.output-container').scrollIntoView({ behavior: 'smooth' });
+
+                try {
+                    const wasmBytes = compile_wasm_g18(textarea.value);
+                    const importObject = {
+                        env: {
+                            print_int: i => { consoleArea.textContent += i + "\n"; consoleArea.scrollTop = consoleArea.scrollHeight; },
+                            print_str: ptr => {
+                                if (!moduleMemory) return;
+                                const view = new Uint8Array(moduleMemory.buffer, ptr);
+                                let s = "";
+                                for (let i = 0; view[i] !== 0; i++) s += String.fromCharCode(view[i]);
+                                consoleArea.textContent += s + "\n";
+                                consoleArea.scrollTop = consoleArea.scrollHeight;
+                            },
+                            memory: new WebAssembly.Memory({ initial: 1 })
+                        }
+                    };
+                    const { instance } = await WebAssembly.instantiate(wasmBytes, importObject);
+                    moduleMemory = instance.exports.memory || importObject.env.memory;
+                    if (instance.exports.main) {
+                        const result = instance.exports.main();
+                        consoleArea.textContent += `\n[Program exited with: ${result}]\n`;
+                    }
+                } catch (e) {
+                    consoleArea.textContent += "Runtime Execution Error: " + e + "\n";
                 }
             };
         }
 
         window.resetCode = () => {
-            document.getElementById('input').value = `fn main() -> i32s {\n    print("Hello from the web!");\n    return 0;\n}`;
+            textarea.value = initialCode;
+            updateHighlight();
         };
 
         window.copyOutput = () => {
-            const text = document.getElementById('output').textContent;
-            navigator.clipboard.writeText(text);
-            const btn = event.target;
-            const originalText = btn.textContent;
-            btn.textContent = "Copied!";
-            setTimeout(() => btn.textContent = originalText, 2000);
+            navigator.clipboard.writeText(outputArea.textContent).then(() => {
+                const b = event.target;
+                const old = b.textContent;
+                b.textContent = "Copied!";
+                setTimeout(() => b.textContent = old, 1500);
+            });
         };
 
-        run();
+        start();
     </script>
 </body>
 

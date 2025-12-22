@@ -247,6 +247,8 @@ impl Generator {
                 iterator_end,
                 body,
             } => {
+                let saved_stack_offset = self.current_stack_offset;
+
                 if self.scopes.len() == 1 {
                     self.global_vars.insert(iterator_name.clone());
                     self.scopes[0].insert(iterator_name.clone(), GeneratorVarEntry { location: VariableLocation::Global, type_: Type::I32S });
@@ -278,7 +280,7 @@ impl Generator {
                 
                 self.generate_expr_into_register(iterator_end, "ebx", writer);
                 writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    jg {}", end_label).unwrap();
+                writeln!(writer, "    jge {}", end_label).unwrap();
 
                 for stmt in body {
                     self.generate_x64(stmt, writer);
@@ -297,6 +299,8 @@ impl Generator {
                 writeln!(writer, "    jmp {}", loop_label).unwrap();
 
                 writeln!(writer, "{}:", end_label).unwrap();
+
+                self.current_stack_offset = saved_stack_offset;
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolIf {
