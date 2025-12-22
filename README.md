@@ -25,20 +25,6 @@ A minimal, educational programming language implemented in Rust that compiles to
 g18 follows a simple, C-like syntax:
 
 ```g18
-i32s x = 0;
-for i in 0 to 10 {              
-    x = x + i;                  
-}
-
-{                               
-    bool y = false;             
-    f32s z = 3.14159;
-}
-
-i32s y = ((x + 10) * 5) / 2;    
-char c = 'a';
-char d = 'b';
-
 fn is_less_than(char a, char b) -> bool {
     return a < b;
 }
@@ -47,12 +33,33 @@ fn is_equal(char a, char b) -> bool {
     return a == b;
 }
 
-if is_less_than(c, d) {                      
-    exit 1;
-} else if is_equal(c, d) {
-    exit 2;
-} else {                        
-    exit 0;
+fn main() -> i32s {
+    i32s x = 0;
+    for i in 0 to 10 {              
+        x = x + i;                  
+    }
+
+    {                               
+        bool y = false;             
+        f32s z = 3.14159;
+    }
+
+    i32s y = ((x + 10) * 5) / 2;    
+
+    i32s[][] z = [[1, 2], [3, 4]];
+
+    print("Hello, World!");
+
+    char c = 'a';
+    char d = 'b';
+
+    if is_less_than(c, d) {                      
+        return 2;
+    } else if is_equal(c, d) {
+        return 1;
+    } else {                        
+        return 0;
+    }
 }
 ```
 
@@ -163,7 +170,7 @@ exit y;
 
 2. **Compile to assembly**:
 ```bash
-./target/release/group18 example.g18
+./target/release/Group18 example.g18
 ```
 
 3. **Assemble and link** (Windows):

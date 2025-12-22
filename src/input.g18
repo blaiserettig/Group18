@@ -18,6 +18,11 @@ fn main() -> i32s {
     }
 
     i32s y = ((x + 10) * 5) / 2;    
+
+    i32s[][] z = [[1, 2], [3, 4]];
+
+    print("Hello, World!");
+
     char c = 'a';
     char d = 'b';
 
