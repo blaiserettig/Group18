@@ -1,12 +1,12 @@
 
-## Noble Programming Language
+## Group18 Programming Language
 
 [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 
-A minimal, educational programming language implemented in Rust that compiles to x86-64 assembly. Noble demonstrates the complete pipeline of language implementation, from lexical analysis to code generation.
+A minimal, educational programming language implemented in Rust that compiles to x86-64 assembly. Group18 (g18) demonstrates the complete pipeline of language implementation, from lexical analysis to code generation.
 
 ## Features
 
@@ -22,9 +22,9 @@ A minimal, educational programming language implemented in Rust that compiles to
 
 ## Language Syntax
 
-Noble follows a simple, C-like syntax:
+g18 follows a simple, C-like syntax:
 
-```noble
+```g18
 i32s x = 0;
 for i in 0 to 10 {              
     x = x + i;                  
@@ -140,15 +140,15 @@ x86-64 Assembly (.asm)
 ### Installation
 
 ```bash
-git clone https://github.com/blaiserettig/Noble
-cd Noble
+git clone https://github.com/blaiserettig/Group18
+cd Group18
 cargo build --release
 ```
 
 ### Usage
 
-1. **Write a Noble program in the src/ directory** (`src/example.nbl`):
-```noble
+1. **Write a Noble program in the src/ directory** (`src/example.g18`):
+```g18
 i32s x = 0;
 for i in 0 to 10 {
     x = i;
@@ -159,7 +159,7 @@ exit y;
 
 2. **Compile to assembly**:
 ```bash
-./target/release/noble example.nbl
+./target/release/group18 example.g18
 ```
 
 3. **Assemble and link** (Windows):
@@ -175,8 +175,8 @@ $LASTEXITCODE
 
 ## Example Compilation
 
-**Input** (`input.nbl`):
-```noble
+**Input** (`input.g18`):
+```g18
 i32s x = 0;
 for i in 0 to 10 {
     x = i;

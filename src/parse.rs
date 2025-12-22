@@ -170,16 +170,21 @@ pub struct Parser {
     scopes: Vec<HashMap<String, VarEntry>>,
     functions: HashMap<String, (Vec<Type>, Type)>,
     return_type_stack: Vec<Type>,
+    source_lines: Vec<String>,
+    filename: String,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>, source_code: String, filename: String) -> Self {
+        let source_lines = source_code.lines().map(|s| s.to_string()).collect();
         Self {
             tokens,
             token_index: 0,
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             return_type_stack: Vec::new(),
+            source_lines,
+            filename,
         }
     }
 
@@ -213,16 +218,37 @@ impl Parser {
     }
 
     fn format_error(&self, token: &Token, message: &str) -> String {
-        format!("Error at line {}, column {}: {}", token.line, token.column, message)
+        let red = "\x1b[31m";
+        let reset = "\x1b[0m";
+        let mut error = format!(
+            "{red}Fatal -- Parse Error{reset}\n{}\nAT\n{}:{}:{}\n---\n",
+            message, self.filename, token.line, token.column
+        );
+
+        if token.line > 0 && token.line <= self.source_lines.len() {
+            let line_content = &self.source_lines[token.line - 1];
+            error.push_str(line_content);
+            error.push('\n');
+            for _ in 0..(token.column - 1) {
+                error.push(' ');
+            }
+            error.push('^');
+        }
+        error
     }
 
     fn error_at_current(&self, message: &str) -> String {
         if let Some(token) = self.current() {
             self.format_error(token, message)
         } else if let Some(last_token) = self.tokens.last() {
-            format!("Error at line {}, column {}: {} (at end of input)", last_token.line, last_token.column, message)
+            let red = "\x1b[31m";
+            let reset = "\x1b[0m";
+            format!(
+                "{red}Fatal -- Parse Error{reset}\n{} (at end of input)\nAT\n{}:{}:{}\n---\n",
+                message, self.filename, last_token.line, last_token.column
+            )
         } else {
-            format!("Error: {}", message)
+            format!("\x1b[31mFatal -- Error\x1b[0m: {}", message)
         }
     }
 
@@ -245,7 +271,7 @@ impl Parser {
             match self.parse_statement() {
                 Ok(stmt) => entry_node.children.push(stmt),
                 Err(e) => {
-                    eprintln!("Fatal -- {}", e);
+                    eprintln!("{}", e);
                     break;
                 }
             }
