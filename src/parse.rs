@@ -389,7 +389,7 @@ impl Parser {
 
     fn parse_function_dec(&mut self) -> Result<ParseTreeNode, String> {
         // "fn" Ident "(" Ident* ")" "->" Type Block
-        let fn_token = self.consume();
+        let _fn_token = self.consume();
         let fn_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFn,
             children: vec![],
@@ -624,7 +624,7 @@ impl Parser {
 
     fn parse_return(&mut self) -> Result<ParseTreeNode, String> {
         // "return" Expr ";"
-        let ret_token = self.consume();
+        let _ret_token = self.consume();
         let ret_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalReturn,
             children: vec![],
@@ -1575,7 +1575,7 @@ impl Parser {
                     .children
                     .iter()
                     .filter_map(|child| match child.symbol {
-                        ParseTreeSymbol::ParseTreeSymbolNodeStatement => {
+                        ParseTreeSymbol::ParseTreeSymbolNodeStatement | ParseTreeSymbol::ParseTreeSymbolNodeFunctionDec => {
                             Some(self.build_ast(child))
                         }
                         _ => None,
@@ -1955,23 +1955,6 @@ impl Parser {
                         return_type,
                         body,
                     },
-                    children: vec![],
-                }
-            }
-
-            ParseTreeSymbol::ParseTreeSymbolNodeBlock => {
-                self.push_scope();
-                let mut stmt_nodes = Vec::new();
-                self.find_statements(parse_tree, &mut stmt_nodes);
-
-                let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
-                    .into_iter()
-                    .map(|stmt| self.build_ast(stmt))
-                    .collect();
-                self.pop_scope();
-
-                AbstractSyntaxTreeNode {
-                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body },
                     children: vec![],
                 }
             }
