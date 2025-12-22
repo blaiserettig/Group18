@@ -212,6 +212,20 @@ impl Parser {
         self.tokens.get(self.token_index)
     }
 
+    fn format_error(&self, token: &Token, message: &str) -> String {
+        format!("Error at line {}, column {}: {}", token.line, token.column, message)
+    }
+
+    fn error_at_current(&self, message: &str) -> String {
+        if let Some(token) = self.current() {
+            self.format_error(token, message)
+        } else if let Some(last_token) = self.tokens.last() {
+            format!("Error at line {}, column {}: {} (at end of input)", last_token.line, last_token.column, message)
+        } else {
+            format!("Error: {}", message)
+        }
+    }
+
     fn consume(&mut self) -> &Token {
         let token = &self.tokens[self.token_index];
         self.token_index += 1;
@@ -326,30 +340,30 @@ impl Parser {
             | TokenType::TokenTypeBooleanLiteral
             | TokenType::TokenTypeCharLiteral
             | TokenType::TokenTypeStringLiteral => {
-                Err(format!(
-                    "ParseError: unexpected literal at start of statement: {:?}",
+                Err(self.format_error(token, &format!(
+                    "unexpected literal at start of statement: {:?}",
                     token.token_type
-                ))
+                )))
             }
-            _ => Err(format!(
-                "ParseError: unrecognized token type: {:?}",
+            _ => Err(self.format_error(token, &format!(
+                "unrecognized token type: {:?}",
                 token.token_type
-            )),
+            ))),
         }
     }
 
     fn parse_function_dec(&mut self) -> Result<ParseTreeNode, String> {
         // "fn" Ident "(" Ident* ")" "->" Type Block
-        let fn_token = self.consume(); // fn
+        let fn_token = self.consume();
         let fn_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFn,
             children: vec![],
             value: None,
         };
 
-        let ident_token = self.current().ok_or("Expected identifier after fn")?;
+        let ident_token = self.current().ok_or_else(|| self.error_at_current("Expected identifier after fn"))?;
         if ident_token.token_type != TokenType::TokenTypeIdentifier {
-            return Err("Expected identifier after fn".to_string());
+            return Err(self.format_error(ident_token, "Expected identifier after fn"));
         }
         let ident_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
@@ -359,7 +373,7 @@ impl Parser {
         self.consume();
 
         if self.consume().token_type != TokenType::TokenTypeLeftParen {
-            return Err("Expected '(' after function name".to_string());
+            return Err(self.error_at_current("Expected '(' after function name"));
         }
         let lparen_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftParen,
@@ -376,9 +390,9 @@ impl Parser {
                 let type_node = self.parse_type()?;
                 param_children.push(type_node);
 
-                let p_ident = self.current().ok_or("Expected identifier in param")?;
+                let p_ident = self.current().ok_or_else(|| self.error_at_current("Expected identifier in param"))?;
                 if p_ident.token_type != TokenType::TokenTypeIdentifier {
-                    return Err("Expected identifier in param".to_string());
+                    return Err(self.format_error(p_ident, "Expected identifier in param"));
                 }
                 param_children.push(ParseTreeNode {
                     symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
@@ -396,7 +410,7 @@ impl Parser {
         }
 
         if self.consume().token_type != TokenType::TokenTypeRightParen {
-            return Err("Expected ')' after parameters".to_string());
+            return Err(self.error_at_current("Expected ')' after parameters"));
         }
         let rparen_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightParen,
@@ -405,7 +419,7 @@ impl Parser {
         };
 
         if self.consume().token_type != TokenType::TokenTypeArrow {
-            return Err("Expected '->' after parameters".to_string());
+            return Err(self.error_at_current("Expected '->' after parameters"));
         }
         let arrow_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalArrow,
@@ -461,7 +475,7 @@ impl Parser {
         };
 
         if self.consume().token_type != TokenType::TokenTypeLeftParen {
-            return Err("Expected '(' after function name".to_string());
+            return Err(self.error_at_current("Expected '(' after function name"));
         }
         let lparen_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftParen,
@@ -483,7 +497,7 @@ impl Parser {
         }
 
         if self.consume().token_type != TokenType::TokenTypeRightParen {
-            return Err("Expected ')' after args".to_string());
+            return Err(self.error_at_current("Expected ')' after args"));
         }
         let rparen_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightParen,
@@ -527,7 +541,7 @@ impl Parser {
             let expr = self.parse_expression()?;
 
             if self.consume().token_type != TokenType::TokenTypeSemicolon {
-                return Err("Expected ';' after return".to_string());
+                return Err(self.error_at_current("Expected ';' after return"));
             }
             let semi_terminal = ParseTreeNode {
                 symbol: ParseTreeSymbol::ParseTreeSymbolTerminalSemicolon,
@@ -565,10 +579,10 @@ impl Parser {
             self.consume();
             node
         } else {
-            return Err(format!(
-                "MissingTokenError: expected Semicolon, found: {:?}",
+            return Err(self.error_at_current(&format!(
+                "expected Semicolon, found: {:?}",
                 self.current().map(|t| &t.token_type)
-            ));
+            )));
         };
 
         Ok(ParseTreeNode {
@@ -752,7 +766,7 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<ParseTreeNode, String> {
         let token = self
             .current()
-            .ok_or("ParseError: Unexpected end of input in primary expression")?;
+            .ok_or_else(|| self.error_at_current("Unexpected end of input in primary expression"))?;
 
         match token.token_type {
             TokenType::TokenTypeIntegerLiteral => {
@@ -867,12 +881,12 @@ impl Parser {
 
                 let right_paren_token = self
                     .current()
-                    .ok_or("ParseError: Expected ')', found end of input")?;
+                    .ok_or_else(|| self.error_at_current("Expected ')', found end of input"))?;
                 if right_paren_token.token_type != TokenType::TokenTypeRightParen {
-                    return Err(format!(
-                        "ParseError: Expected ')', found {:?}",
+                    return Err(self.format_error(right_paren_token, &format!(
+                        "Expected ')', found {:?}",
                         right_paren_token.token_type
-                    ));
+                    )));
                 }
                 let right_paren = ParseTreeNode {
                     symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightParen,
@@ -888,10 +902,10 @@ impl Parser {
                 })
             }
 
-            _ => Err(format!(
+            _ => Err(self.format_error(token, &format!(
                 "Unexpected token in primary expression: {:?}",
                 token.token_type
-            )),
+            ))),
         }
     }
 
@@ -902,12 +916,12 @@ impl Parser {
 
         let equals_token = self
             .current()
-            .ok_or("ParseError: Expected '=', found end of input")?;
+            .ok_or_else(|| self.error_at_current("Expected '=', found end of input"))?;
         if equals_token.token_type != TokenType::TokenTypeEquals {
-            return Err(format!(
-                "ParseError: Expected '=', found {:?}",
+            return Err(self.format_error(equals_token, &format!(
+                "Expected '=', found {:?}",
                 equals_token.token_type
-            ));
+            )));
         }
         let equals_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalEquals,
@@ -920,12 +934,12 @@ impl Parser {
 
         let semi_token = self
             .current()
-            .ok_or("ParseError: Expected semicolon, found end of input")?;
+            .ok_or_else(|| self.error_at_current("Expected semicolon, found end of input"))?;
         if semi_token.token_type != TokenType::TokenTypeSemicolon {
-            return Err(format!(
-                "ParseError: Expected semicolon, found {:?}",
+            return Err(self.format_error(semi_token, &format!(
+                "Expected semicolon, found {:?}",
                 semi_token.token_type
-            ));
+            )));
         }
         let semi_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalSemicolon,
@@ -944,10 +958,10 @@ impl Parser {
         let var_type = self.match_type_in_scope(&type_node);
         let var_value = self.build_expr(&expr_node);
         if self.lookup_in_scope(&var_name).is_some() {
-            return Err(format!(
-                "ParseError: Duplicate variable name in same scope: {:?}",
+            return Err(self.error_at_current(&format!(
+                "Duplicate variable name in same scope: {:?}",
                 var_name
-            ));
+            )));
         }
         self.insert_in_scope(
             var_name,
@@ -973,12 +987,12 @@ impl Parser {
     fn parse_variable_assignment(&mut self) -> Result<ParseTreeNode, String> {
         let ident_token = self
             .current()
-            .ok_or("ParseError: Expected identifier, found end of input")?;
+            .ok_or_else(|| self.error_at_current("Expected identifier, found end of input"))?;
         if ident_token.token_type != TokenType::TokenTypeIdentifier {
-            return Err(format!(
-                "ParseError: Expected identifier, found {:?}",
+            return Err(self.format_error(ident_token, &format!(
+                "Expected identifier, found {:?}",
                 ident_token.token_type
-            ));
+            )));
         }
         let ident_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
@@ -989,12 +1003,12 @@ impl Parser {
 
         let equals_token = self
             .current()
-            .ok_or("ParseError: Expected '=', found end of input")?;
+            .ok_or_else(|| self.error_at_current("Expected '=', found end of input"))?;
         if equals_token.token_type != TokenType::TokenTypeEquals {
-            return Err(format!(
-                "ParseError: Expected '=', found {:?}",
+            return Err(self.format_error(equals_token, &format!(
+                "Expected '=', found {:?}",
                 equals_token.token_type
-            ));
+            )));
         }
         let equals_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalEquals,
@@ -1007,12 +1021,12 @@ impl Parser {
 
         let semi_token = self
             .current()
-            .ok_or("ParseError: Expected semicolon, found end of input")?;
+            .ok_or_else(|| self.error_at_current("Expected semicolon, found end of input"))?;
         if semi_token.token_type != TokenType::TokenTypeSemicolon {
-            return Err(format!(
-                "ParseError: Expected semicolon, found {:?}",
+            return Err(self.format_error(semi_token, &format!(
+                "Expected semicolon, found {:?}",
                 semi_token.token_type
-            ));
+            )));
         }
         let semi_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalSemicolon,
@@ -1028,7 +1042,7 @@ impl Parser {
             .clone();
         let var_value = self.build_expr(&expr_node).clone();
         if self.lookup_in_scope(&var_name).is_none() {
-            return Err(format!("Undefined variable {}", var_name));
+            return Err(self.error_at_current(&format!("Undefined variable {}", var_name)));
         }
         self.update_in_scope(&var_name, var_value)?;
 
@@ -1125,19 +1139,13 @@ impl Parser {
             self.consume();
             Ok(node)
         } else {
-            Err(format!(
-                "MissingTokenError: expected Type, found: {:?}",
-                self.current().unwrap().token_type
-            ))
+            Err(self.error_at_current("expected Type"))
         }
     }
 
     fn parse_for(&mut self) -> Result<ParseTreeNode, String> {
         if self.current().unwrap().token_type != TokenType::TokenTypeFor {
-            return Err(format!(
-                "MissingTokenError: Expected 'for', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected 'for'"));
         }
         let terminal_for = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalFor,
@@ -1149,10 +1157,7 @@ impl Parser {
         let ident_node = self.parse_expression()?;
 
         if self.current().unwrap().token_type != TokenType::TokenTypeForIn {
-            return Err(format!(
-                "MissingTokenError: Expected 'for_in', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected 'in'"));
         }
         let terminal_for_in = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalForIn,
@@ -1164,10 +1169,7 @@ impl Parser {
         let lower_bound_node = self.parse_expression()?;
 
         if self.current().unwrap().token_type != TokenType::TokenTypeForTo {
-            return Err(format!(
-                "MissingTokenError: Expected 'for_dot', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected 'to'"));
         }
         let terminal_for_dot = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalForTo,
@@ -1179,10 +1181,7 @@ impl Parser {
         let upper_bound_node = self.parse_expression()?;
 
         if self.current().unwrap().token_type != TokenType::TokenTypeLeftCurlyBrace {
-            return Err(format!(
-                "MissingTokenError: Expected 'left_curly_brace', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected '{' at start of for-loop block"));
         }
 
         self.push_scope();
@@ -1225,10 +1224,7 @@ impl Parser {
 
     fn parse_if(&mut self) -> Result<ParseTreeNode, String> {
         if self.current().unwrap().token_type != TokenType::TokenTypeIf {
-            return Err(format!(
-                "MissingTokenError: Expected 'if', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected 'if'"));
         }
         let if_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIf,
@@ -1276,7 +1272,7 @@ impl Parser {
                 block
             }
             other => {
-                return Err(format!("Unexpected token after `else`: {:?}", other));
+                return Err(self.error_at_current(&format!("Unexpected token after `else`: {:?}", other)));
             }
         };
 
@@ -1289,10 +1285,7 @@ impl Parser {
 
     fn parse_block(&mut self) -> Result<ParseTreeNode, String> {
         if self.current().unwrap().token_type != TokenType::TokenTypeLeftCurlyBrace {
-            return Err(format!(
-                "MissingTokenError: Expected 'left_curly_brace', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected '{' at start of block"));
         }
         let left_bracket_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalLeftCurlyBrace,
@@ -1313,10 +1306,7 @@ impl Parser {
         }
 
         if self.current().unwrap().token_type != TokenType::TokenTypeRightCurlyBrace {
-            return Err(format!(
-                "MissingTokenError: Expected 'right_curly_brace', found: {:?}",
-                self.current().unwrap().token_type
-            ));
+            return Err(self.error_at_current("Expected '}'"));
         }
         let right_bracket_terminal = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalRightCurlyBrace,
@@ -1768,7 +1758,7 @@ impl Parser {
                     children: vec![],
                 }
             }
-            
+
             ParseTreeSymbol::ParseTreeSymbolNodeBlock => {
                 self.push_scope();
                 let mut stmt_nodes = Vec::new();

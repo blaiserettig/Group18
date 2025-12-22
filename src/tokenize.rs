@@ -47,11 +47,15 @@ pub enum TokenType {
 pub struct Token {
     pub token_type: TokenType,
     pub value: Option<String>,
+    pub line: usize,
+    pub column: usize,
 }
 
 pub struct Tokenizer {
     chars: Vec<char>,
     index: usize,
+    line: usize,
+    column: usize,
 }
 
 impl Tokenizer {
@@ -59,6 +63,8 @@ impl Tokenizer {
         Self {
             chars: input_string.chars().collect(),
             index: 0,
+            line: 1,
+            column: 1,
         }
     }
 
@@ -69,9 +75,19 @@ impl Tokenizer {
         tokens.push(Token {
             token_type: TokenType::TokenTypeEntryPoint,
             value: None,
+            line: 1,
+            column: 1,
         });
 
         while !self.is_at_end() {
+            if self.current().unwrap().is_ascii_whitespace() {
+                self.consume();
+                continue;
+            }
+
+            let start_line = self.line;
+            let start_column = self.column;
+
             if self.current().unwrap().is_ascii_alphabetic() || self.current().unwrap() == '_' {
                 buffer.push(self.consume());
                 while self.current() != None && (self.current().unwrap().is_ascii_alphanumeric() || self.current().unwrap() == '_') {
@@ -81,87 +97,121 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeExit,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['i', '3', '2', 's'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeI32S,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['f', '3', '2', 's'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeF32S,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['b', 'o', 'o', 'l'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeBool,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['c', 'h', 'a', 'r'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeChar,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['t', 'r', 'u', 'e'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeBooleanLiteral,
                         value: Some("true".to_string()),
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['f', 'a', 'l', 's', 'e'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeBooleanLiteral,
                         value: Some("false".to_string()),
+                        line: start_line,
+                        column: start_column,
                     });
                 } else if buffer == ['f', 'o', 'r'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeFor,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['i', 'n'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeForIn,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['t', 'o'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeForTo,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['i', 'f'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeIf,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['e', 'l', 's', 'e'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeElse,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['f', 'n'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeFn,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['r', 'e', 't', 'u', 'r', 'n'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeReturn,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['v', 'o', 'i', 'd'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeVoid,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else if buffer == ['s', 't', 'r', 'i', 'n', 'g'] {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeTypeString,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     })
                 } else {
                     // If not a keyword, it is an identifier
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeIdentifier,
                         value: Some(buffer.iter().collect()),
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap().is_ascii_digit() {
@@ -177,11 +227,15 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeFloatLiteral,
                         value: Some(buffer.iter().collect()),
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeIntegerLiteral,
                         value: Some(buffer.iter().collect()),
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap() == ';' {
@@ -189,6 +243,8 @@ impl Tokenizer {
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeSemicolon,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '=' {
                 self.consume();
@@ -197,11 +253,15 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeEqualsEquals,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeEquals,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap() == '!' {
@@ -211,9 +271,11 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeNotEquals,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
-                    eprintln!("{:?}", "Tokenization Error: '!' must be followed by '='");
+                    eprintln!("Tokenization Error at line {}, column {}: '!' must be followed by '='", start_line, start_column);
                     exit(1);
                 }
             } else if self.current().unwrap() == '<' {
@@ -223,11 +285,15 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeLessThanOrEqual,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeLessThan,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap() == '>' {
@@ -237,11 +303,15 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeGreaterThanOrEqual,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeGreaterThan,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap() == '+' {
@@ -249,6 +319,8 @@ impl Tokenizer {
                 tokens.push(Token {
                     token_type: TokenType::TokenTypePlus,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '-' {
                 self.consume();
@@ -257,11 +329,15 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeArrow, 
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeMinus,
                         value: None,
+                        line: start_line,
+                        column: start_column,
                     });
                 }
             } else if self.current().unwrap() == ',' {
@@ -269,42 +345,56 @@ impl Tokenizer {
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeComma,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '*' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeMultiply,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '/' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeDivide,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '(' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeLeftParen,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == ')' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeRightParen,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '{' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeLeftCurlyBrace,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '}' {
                 self.consume();
                 tokens.push(Token {
                     token_type: TokenType::TokenTypeRightCurlyBrace,
                     value: None,
+                    line: start_line,
+                    column: start_column,
                 });
             } else if self.current().unwrap() == '\'' {
                 self.consume(); // opening quote
@@ -314,9 +404,11 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeCharLiteral,
                         value: Some(char_val.to_string()),
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
-                    eprintln!("Tokenization Error: Expected closing quote for char literal");
+                    eprintln!("Tokenization Error at line {}, column {}: Expected closing quote for char literal", start_line, start_column);
                     exit(1);
                 }
             } else if self.current().unwrap() == '"' {
@@ -347,15 +439,17 @@ impl Tokenizer {
                     tokens.push(Token {
                         token_type: TokenType::TokenTypeStringLiteral,
                         value: Some(string_content),
+                        line: start_line,
+                        column: start_column,
                     });
                 } else {
-                    eprintln!("Tokenization Error: Expected closing quote for string literal");
+                    eprintln!("Tokenization Error at line {}, column {}: Expected closing quote for string literal", start_line, start_column);
                     exit(1);
                 }
             } else if self.current().unwrap().is_ascii_whitespace() {
                 self.consume();
             } else {
-                eprintln!("{:?}", "Tokenization Error!");
+                eprintln!("Tokenization Error at line {}, column {}: Unrecognized character '{}'", start_line, start_column, self.current().unwrap());
                 exit(1);
             }
             buffer.clear();
@@ -378,6 +472,12 @@ impl Tokenizer {
     pub fn consume(&mut self) -> char {
         let c: char = self.chars[self.index];
         self.index += 1;
+        if c == '\n' {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
         c
     }
 }
