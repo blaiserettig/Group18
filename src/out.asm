@@ -36,5 +36,5 @@ main_entry:
     call ExitProcess
 
 segment .data
-str_0 db `Hello, Noble!`, 0
 str_1 db `Direct literal print`, 0
+str_0 db `Hello, Noble!`, 0
