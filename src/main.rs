@@ -28,14 +28,14 @@ fn main() {
 
     println!("{:?}", file_contents);
 
-    let mut tokenizer = Tokenizer::new(file_contents);
+    let mut tokenizer = Tokenizer::new(file_contents.clone());
     let tokens: Vec<Token> = tokenizer.tokenize();
     
     for token in &tokens {
         println!("{:?}", token);
     }
     
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, file_contents, args[1].clone());
     let tree: ParseTreeNode = parser.parse();
 
     parser.print_tree(&tree, 0);
