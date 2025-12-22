@@ -39,7 +39,7 @@ func_is_equal:
 func_main:
     push rbp
     mov rbp, rsp
-    sub rsp, 56
+    sub rsp, 112
     mov rax, 0
     mov qword [rbp-8], rax
     mov eax, 0
@@ -83,13 +83,32 @@ loop_end_i:
     idiv ebx
     mov eax, eax
     mov qword [rbp-40], rax
-    mov rax, 97
-    mov qword [rbp-48], rax
-    mov rax, 98
+    mov rax, 1
+    mov qword [rbp-80], rax
+    mov rax, 2
+    mov qword [rbp-72], rax
+    lea rax, [rbp-80]
+    mov qword [rbp-64], rax
+    mov rax, 3
+    mov qword [rbp-96], rax
+    mov rax, 4
+    mov qword [rbp-88], rax
+    lea rax, [rbp-96]
     mov qword [rbp-56], rax
-    mov eax, dword [rbp-56]
+    lea rax, [rbp-64]
+    mov qword [rbp-48], rax
+    lea rcx, [str_0]
+    and rsp, -16
+    sub rsp, 32
+    call puts
+    add rsp, 32
+    mov rax, 97
+    mov qword [rbp-104], rax
+    mov rax, 98
+    mov qword [rbp-112], rax
+    mov eax, dword [rbp-112]
     push rax
-    mov eax, dword [rbp-48]
+    mov eax, dword [rbp-104]
     push rax
     call func_is_less_than
     add rsp, 16
@@ -101,9 +120,9 @@ loop_end_i:
     ret
     jmp endif_0
 else_0:
-    mov eax, dword [rbp-56]
+    mov eax, dword [rbp-112]
     push rax
-    mov eax, dword [rbp-48]
+    mov eax, dword [rbp-104]
     push rax
     call func_is_equal
     add rsp, 16
@@ -128,3 +147,6 @@ main_entry:
     and rsp, -16
     sub rsp, 32
     call ExitProcess
+
+segment .data
+str_0 db `Hello, World!`, 0

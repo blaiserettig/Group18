@@ -1,7 +1,5 @@
 use crate::parse::{AbstractSyntaxTreeNode, AbstractSyntaxTreeSymbol, BinOpType, Expr, Type};
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::BufWriter;
 use std::io::Write;
 
 #[derive(Clone)]
@@ -29,7 +27,7 @@ impl Generator {
         }
     }
 
-    pub fn generate_boilerplate(&mut self, writer: &mut BufWriter<&File>) {
+    pub fn generate_boilerplate<W: Write>(&mut self, writer: &mut W) {
         write!(
             writer,
             "{}",
@@ -38,10 +36,10 @@ impl Generator {
         .expect("Unable to write to file.");
     }
 
-    pub fn generate_x64(
+    pub fn generate_x64<W: Write>(
         &mut self,
         ast_root: &AbstractSyntaxTreeNode,
-        writer: &mut BufWriter<&File>,
+        writer: &mut W,
     ) {
         match &ast_root.symbol {
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry => {
@@ -274,11 +272,11 @@ impl Generator {
         }
     }
 
-    fn match_variable_helper(
+    fn match_variable_helper<W: Write>(
         &mut self,
         name: &String,
         value: &Expr,
-        writer: &mut BufWriter<&File>,
+        writer: &mut W,
     ) {
         let location = self.lookup_var(name);
         
@@ -304,11 +302,11 @@ impl Generator {
         VariableLocation::Global // fallback
     }
 
-    fn generate_expr_into_register(
+    fn generate_expr_into_register<W: Write>(
         &mut self,
         expr: &Expr,
         reg: &str,
-        writer: &mut BufWriter<&File>,
+        writer: &mut W,
     ) {
         match expr {
             Expr::Int(i) => {
@@ -446,12 +444,12 @@ impl Generator {
         }
     }
 
-    fn generate_binary_op(
+    fn generate_binary_op<W: Write>(
         &mut self,
         left: &Expr,
         op: &BinOpType,
         right: &Expr,
-        writer: &mut BufWriter<&File>,
+        writer: &mut W,
     ) {
         // Eval left into rax
         self.generate_expr_into_register(left, "rax", writer);
@@ -514,12 +512,12 @@ impl Generator {
         }
     }
 
-    fn generate_if(
+    fn generate_if<W: Write>(
         &mut self,
         condition: &Expr,
         body: &Vec<AbstractSyntaxTreeNode>,
         else_body: &Option<Box<AbstractSyntaxTreeNode>>,
-        writer: &mut BufWriter<&File>,
+        writer: &mut W,
     ) {
         static mut LABEL_COUNT: usize = 0;
         let id = unsafe {

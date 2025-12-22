@@ -1,8 +1,7 @@
 @echo off
 if "%1"=="" (
-    echo Usage: build.bat ^<filename_without_extension^> [libraries]
+    echo Usage: build.bat ^<filename_without_extension^>
     echo Example: build.bat hello_world
-    echo Example: build.bat hello_world kernel32.lib
     echo This will build hello_world.asm into hello_world.exe
     goto :end
 )
@@ -17,11 +16,8 @@ if errorlevel 1 (
 )
 
 echo Linking %filename%.obj...
-if "%2"=="" (
-    link %filename%.obj /subsystem:console /out:%filename%.exe
-) else (
-    link %filename%.obj %2 /subsystem:console /out:%filename%.exe
-)
+link %filename%.obj "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\um\x64\kernel32.Lib" "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\ucrt\x64\ucrt.lib" "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.35.32215\lib\x64\vcruntime.lib" /subsystem:console /entry:mainCRTStartup /LARGEADDRESSAWARE:NO /out:%filename%.exe
+
 if errorlevel 1 (
     echo Linking failed!
     goto :end

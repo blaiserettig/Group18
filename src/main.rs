@@ -1,6 +1,4 @@
-mod tokenize;
-mod parse;
-mod generate;
+extern crate Group18;
 
 use std::env;
 use std::fs;
@@ -9,10 +7,10 @@ use std::io::{BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::generate::Generator;
-use crate::parse::Parser;
-use crate::parse::ParseTreeNode;
-use crate::tokenize::{Token, Tokenizer};
+use Group18::generate::Generator;
+use Group18::parse::Parser;
+use Group18::parse::ParseTreeNode;
+use Group18::tokenize::{Token, Tokenizer};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
