@@ -1,53 +1,229 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group18 Compiler Demo</title>
+    <title>Group18 Compiler | Online Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;600;700&display=swap"
+        rel="stylesheet">
     <style>
-        body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
-        textarea { width: 100%; height: 300px; background: #252526; color: #d4d4d4; border: 1px solid #333; padding: 10px; font-family: monospace; }
-        pre { background: #000; padding: 15px; border-radius: 5px; overflow-x: auto; }
-        button { background: #007acc; color: white; border: none; padding: 10px 20px; cursor: pointer; margin-top: 10px; }
-        button:hover { background: #0062a3; }
-        .container { display: flex; flex-direction: column; gap: 20px; }
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --primary: #58a6ff;
+            --accent: #238636;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --border: #30363d;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--primary);
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .pane {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+        }
+
+        .pane-header {
+            padding: 0.5rem 1rem;
+            background: #1c2128;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        textarea,
+        pre {
+            flex-grow: 1;
+            margin: 0;
+            padding: 1.5rem;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            outline: none;
+            resize: none;
+        }
+
+        pre {
+            overflow: auto;
+            white-space: pre-wrap;
+            color: #d19a66;
+            /* Assembly-ish color */
+        }
+
+        .controls {
+            padding: 1rem 2rem;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 1rem;
+        }
+
+        button {
+            padding: 0.6rem 1.2rem;
+            border-radius: 6px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: #3c444d;
+        }
+
+        .status {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-left: auto;
+            align-self: center;
+        }
     </style>
 </head>
+
 <body>
-    <h1>Group18 Compiler Demo</h1>
-    <div class="container">
-        <div>
-            <h3>Input (.g18)</h3>
-            <textarea id="input" placeholder="fn main() -> i32s { return 42; }"></textarea>
-            <button id="compile-btn">Compile to ASM</button>
+    <header>
+        <div class="logo">Group18 Compiler</div>
+        <div class="status" id="status">Ready</div>
+    </header>
+
+    <main>
+        <div class="pane">
+            <div class="pane-header">Input (.g18)</div>
+            <textarea id="input" spellcheck="false">fn main() -> i32s {
+    print("Hello from the web!");
+    
+    i32s x = 0;
+    for i in 0 to 10 {
+        x = x + i;
+    }
+    
+    return x;
+}</textarea>
         </div>
-        <div>
-            <h3>Output (NASM x64)</h3>
-            <pre id="output">Assembly will appear here...</pre>
+        <div class="pane" style="border-right: none;">
+            <div class="pane-header">
+                NASM x64 Assembly
+                <button class="btn-secondary" style="padding: 2px 8px; font-size: 10px;"
+                    onclick="copyOutput()">Copy</button>
+            </div>
+            <pre id="output">; Compiled assembly will appear here...</pre>
         </div>
+    </main>
+
+    <div class="controls">
+        <button class="btn-primary" id="compile-btn">Compile to ASM</button>
+        <button class="btn-secondary" onclick="resetCode()">Reset</button>
     </div>
 
     <script type="module">
         import init, { compile_g18 } from './pkg/Group18.js';
 
         async function run() {
-            await init();
+            try {
+                await init();
+                document.getElementById('status').textContent = "Library Loaded";
+            } catch (e) {
+                document.getElementById('status').textContent = "Error loading WASM";
+                console.error(e);
+            }
 
             const inputArea = document.getElementById('input');
             const outputArea = document.getElementById('output');
             const btn = document.getElementById('compile-btn');
 
             btn.onclick = () => {
+                const startTime = performance.now();
                 try {
                     const result = compile_g18(inputArea.value);
                     outputArea.textContent = result;
+                    const duration = (performance.now() - startTime).toFixed(2);
+                    document.getElementById('status').textContent = `Compiled in ${duration}ms`;
                 } catch (e) {
-                    outputArea.textContent = "Error during compilation: " + e;
+                    outputArea.textContent = "Error during compilation:\n" + e;
+                    document.getElementById('status').textContent = "Compilation Failed";
                 }
             };
         }
 
+        window.resetCode = () => {
+            document.getElementById('input').value = `fn main() -> i32s {\n    print("Hello from the web!");\n    return 0;\n}`;
+        };
+
+        window.copyOutput = () => {
+            const text = document.getElementById('output').textContent;
+            navigator.clipboard.writeText(text);
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(() => btn.textContent = originalText, 2000);
+        };
+
         run();
     </script>
 </body>
+
 </html>

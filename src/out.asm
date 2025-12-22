@@ -5,6 +5,7 @@ segment .text
 global mainCRTStartup
 extern ExitProcess
 extern puts
+extern printf
 
 mainCRTStartup:
     jmp main_entry
@@ -102,6 +103,22 @@ loop_end_i:
     sub rsp, 32
     call puts
     add rsp, 32
+    mov ebx, 1
+    movsxd rbx, ebx
+    push rbx
+    mov ebx, 1
+    movsxd rbx, ebx
+    push rbx
+    mov rax, qword [rbp-48]
+    pop rbx
+    mov rax, qword [rax + rbx * 8]
+    pop rbx
+    mov rdx, qword [rax + rbx * 8]
+    lea rcx, [fmt_int]
+    and rsp, -16
+    sub rsp, 32
+    call printf
+    add rsp, 32
     mov rax, 97
     mov qword [rbp-104], rax
     mov rax, 98
@@ -149,4 +166,6 @@ main_entry:
     call ExitProcess
 
 segment .data
+fmt_int db `%d\n`, 0
 str_0 db `Hello, World!`, 0
+fmt_str db `%s\n`, 0

@@ -2,14 +2,21 @@ use crate::parse::{AbstractSyntaxTreeNode, AbstractSyntaxTreeSymbol, BinOpType, 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq)]
 enum VariableLocation {
     Global,
     Local(i32), // offset from rbp
 }
 
+#[derive(Clone)]
+struct GeneratorVarEntry {
+    location: VariableLocation,
+    type_: Type,
+}
+
 pub struct Generator {
-    scopes: Vec<HashMap<String, VariableLocation>>,
+    scopes: Vec<HashMap<String, GeneratorVarEntry>>,
+    functions: HashMap<String, Type>, // return types
     current_stack_offset: i32,
     global_vars: HashSet<String>,
     string_literals: HashMap<String, String>, // content, label
@@ -20,6 +27,7 @@ impl Generator {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()], // Global scope
+            functions: HashMap::new(),
             current_stack_offset: 0,
             global_vars: HashSet::new(),
             string_literals: HashMap::new(),
@@ -31,9 +39,13 @@ impl Generator {
         write!(
             writer,
             "{}",
-            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\nextern puts\n\nmainCRTStartup:\n"
+            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\nextern puts\nextern printf\n\nmainCRTStartup:\n"
         )
         .expect("Unable to write to file.");
+
+        // Add format strings to string_literals early
+        self.string_literals.insert("%d\n".to_string(), "fmt_int".to_string());
+        self.string_literals.insert("%s\n".to_string(), "fmt_str".to_string());
     }
 
     pub fn generate_x64<W: Write>(
@@ -83,7 +95,9 @@ impl Generator {
                 if !self.string_literals.is_empty() {
                     writeln!(writer, "\nsegment .data").unwrap();
                     for (content, label) in &self.string_literals {
-                        writeln!(writer, "{} db `{}`, 0", label, content).unwrap();
+                        // NASM backticks support C-style escapes.
+                        let escaped = content.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t").replace("`", "\\`");
+                        writeln!(writer, "{} db `{}`, 0", label, escaped).unwrap();
                     }
                 }
             }
@@ -91,9 +105,10 @@ impl Generator {
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec {
                 name,
                 params,
-                return_type: _,
+                return_type,
                 body,
             } => {
+                self.functions.insert(name.clone(), return_type.clone());
                 let func_label = format!("func_{}", name);
                 writeln!(writer, "{}:", func_label).unwrap();
                 
@@ -114,8 +129,14 @@ impl Generator {
                 let mut param_offset = 16;
                 // params vector is left to right
                 // if pushed R->L, first param is closest to RBP
-                for (_type, pname) in params {
-                    self.scopes.last_mut().unwrap().insert(pname.clone(), VariableLocation::Local(param_offset));
+                for (param_type, pname) in params {
+                    self.scopes.last_mut().unwrap().insert(
+                        pname.clone(),
+                        GeneratorVarEntry {
+                            location: VariableLocation::Local(param_offset),
+                            type_: param_type.clone(),
+                        },
+                    );
                     param_offset += 8; // Assuming 64-bit/8-byte slots on stack
                 }
 
@@ -131,13 +152,35 @@ impl Generator {
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
                 if name == "print" {
-                    // calls puts
                     for arg in args.iter().rev() {
-                        self.generate_expr_into_register(arg, "rcx", writer);
-                        writeln!(writer, "    and rsp, -16").unwrap();
-                        writeln!(writer, "    sub rsp, 32").unwrap();
-                        writeln!(writer, "    call puts").unwrap();
-                        writeln!(writer, "    add rsp, 32").unwrap();
+                        let ty = self.get_expr_type(arg);
+                        match ty {
+                            Type::String => {
+                                self.generate_expr_into_register(arg, "rcx", writer);
+                                writeln!(writer, "    and rsp, -16").unwrap();
+                                writeln!(writer, "    sub rsp, 32").unwrap();
+                                writeln!(writer, "    call puts").unwrap();
+                                writeln!(writer, "    add rsp, 32").unwrap();
+                            }
+                            Type::I32S | Type::Bool | Type::Char => {
+                                // Use printf with fmt_int
+                                self.generate_expr_into_register(arg, "rdx", writer);
+                                let fmt_label = if let Some(l) = self.string_literals.get("%d\n") { l.clone() } else { "fmt_int".to_string() };
+                                writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                writeln!(writer, "    and rsp, -16").unwrap();
+                                writeln!(writer, "    sub rsp, 32").unwrap();
+                                writeln!(writer, "    call printf").unwrap();
+                                writeln!(writer, "    add rsp, 32").unwrap();
+                            }
+                            _ => {
+                                // Fallback to puts for pointers
+                                self.generate_expr_into_register(arg, "rcx", writer);
+                                writeln!(writer, "    and rsp, -16").unwrap();
+                                writeln!(writer, "    sub rsp, 32").unwrap();
+                                writeln!(writer, "    call puts").unwrap();
+                                writeln!(writer, "    add rsp, 32").unwrap();
+                            }
+                        }
                     }
                 } else {
                     // reg function call
@@ -180,13 +223,13 @@ impl Generator {
             } => {
                 if self.scopes.len() == 1 { // global
                     self.global_vars.insert(name.clone());
-                    self.scopes[0].insert(name.clone(), VariableLocation::Global);
+                    self.scopes[0].insert(name.clone(), GeneratorVarEntry { location: VariableLocation::Global, type_: _type_.clone() });
                     self.match_variable_helper(name, value, writer);
                 } else { // local
                     let size = 8; // Always allocate 8 bytes (pointers or 32-bit values)
                     self.current_stack_offset -= size;
                     let offset = self.current_stack_offset;
-                    self.scopes.last_mut().unwrap().insert(name.clone(), VariableLocation::Local(offset));
+                    self.scopes.last_mut().unwrap().insert(name.clone(), GeneratorVarEntry { location: VariableLocation::Local(offset), type_: _type_.clone() });
                     self.match_variable_helper(name, value, writer);
                 }
             }
@@ -206,13 +249,13 @@ impl Generator {
             } => {
                 if self.scopes.len() == 1 {
                     self.global_vars.insert(iterator_name.clone());
-                    self.scopes[0].insert(iterator_name.clone(), VariableLocation::Global);
+                    self.scopes[0].insert(iterator_name.clone(), GeneratorVarEntry { location: VariableLocation::Global, type_: Type::I32S });
                 } else {
                     self.current_stack_offset -= 8;
                     self.scopes
                         .last_mut()
                         .unwrap()
-                        .insert(iterator_name.clone(), VariableLocation::Local(self.current_stack_offset));
+                        .insert(iterator_name.clone(), GeneratorVarEntry { location: VariableLocation::Local(self.current_stack_offset), type_: Type::I32S });
                 }
 
                 let loop_label = format!("loop_begin_{}", iterator_name);
@@ -220,7 +263,7 @@ impl Generator {
 
                 self.generate_expr_into_register(iterator_begin, "eax", writer);
                 
-                let iter_loc = self.lookup_var(iterator_name);
+                let iter_loc = self.lookup_var(iterator_name).location;
                 match iter_loc {
                     VariableLocation::Global => writeln!(writer, "    mov dword [{}], eax", iterator_name).unwrap(),
                     VariableLocation::Local(off) => writeln!(writer, "    mov dword [rbp{}], eax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
@@ -278,7 +321,7 @@ impl Generator {
         value: &Expr,
         writer: &mut W,
     ) {
-        let location = self.lookup_var(name);
+        let location = self.lookup_var(name).location;
         
         // Evaluate expression into rax
         self.generate_expr_into_register(value, "rax", writer);
@@ -293,13 +336,13 @@ impl Generator {
         }
     }
     
-    fn lookup_var(&self, name: &str) -> VariableLocation {
+    fn lookup_var(&self, name: &str) -> GeneratorVarEntry {
         for scope in self.scopes.iter().rev() {
-            if let Some(loc) = scope.get(name) {
-                return loc.clone();
+            if let Some(entry) = scope.get(name) {
+                return entry.clone();
             }
         }
-        VariableLocation::Global // fallback
+        GeneratorVarEntry { location: VariableLocation::Global, type_: Type::I32S } // fallback
     }
 
     fn generate_expr_into_register<W: Write>(
@@ -312,7 +355,7 @@ impl Generator {
             Expr::Int(i) => {
                 writeln!(writer, "    mov {}, {}", reg, i).unwrap();
             }
-            Expr::Ident(name) => match self.lookup_var(name) {
+            Expr::Ident(name) => match self.lookup_var(name).location {
                 VariableLocation::Global => {
                     if reg.starts_with('e') {
                         writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap()
@@ -415,7 +458,7 @@ impl Generator {
                 // 2. Eval base array into rax (address)
                 match &**array {
                     Expr::Ident(name) => {
-                        let loc = self.lookup_var(name);
+                        let loc = self.lookup_var(name).location;
                         match loc {
                             VariableLocation::Local(off) => {
                                 // Load the pointer into rax
@@ -649,5 +692,48 @@ impl Generator {
             _ => {}
         }
         size
+    }
+
+    fn get_expr_type(&self, expr: &Expr) -> Type {
+        match expr {
+            Expr::Int(_) => Type::I32S,
+            Expr::Float(_) => Type::F32S,
+            Expr::Bool(_) => Type::Bool,
+            Expr::Char(_) => Type::Char,
+            Expr::String(_) => Type::String,
+            Expr::Ident(name) => self.lookup_var(name).type_,
+            Expr::BinaryOp { left, op, .. } => {
+                let left_type = self.get_expr_type(left);
+                match op {
+                    BinOpType::Equal
+                    | BinOpType::NotEqual
+                    | BinOpType::LessThan
+                    | BinOpType::LessThanOrEqual
+                    | BinOpType::GreaterThan
+                    | BinOpType::GreaterThanOrEqual => Type::Bool,
+                    _ => left_type,
+                }
+            }
+            Expr::FunctionCall { name, .. } => self
+                .functions
+                .get(name)
+                .cloned()
+                .unwrap_or(Type::I32S),
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    Type::Array(Box::new(Type::I32S))
+                } else {
+                    let elem_type = self.get_expr_type(&elements[0]);
+                    Type::Array(Box::new(elem_type))
+                }
+            }
+            Expr::ArrayIndex { array, .. } => {
+                let array_type = self.get_expr_type(array);
+                match array_type {
+                    Type::Array(inner) => *inner,
+                    _ => Type::I32S,
+                }
+            }
+        }
     }
 }

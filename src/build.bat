@@ -16,8 +16,7 @@ if errorlevel 1 (
 )
 
 echo Linking %filename%.obj...
-link %filename%.obj "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\um\x64\kernel32.Lib" "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\ucrt\x64\ucrt.lib" "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.35.32215\lib\x64\vcruntime.lib" /subsystem:console /entry:mainCRTStartup /LARGEADDRESSAWARE:NO /out:%filename%.exe
-
+link out.obj "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\um\x64\kernel32.Lib" "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.22000.0\ucrt\x64\ucrt.lib" "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.35.32215\lib\x64\vcruntime.lib" "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.35.32215\lib\x64\store\legacy_stdio_definitions.lib" "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.35.32215\lib\x64\store\legacy_stdio_wide_specifiers.lib" /subsystem:console /entry:mainCRTStartup /LARGEADDRESSAWARE:NO
 if errorlevel 1 (
     echo Linking failed!
     goto :end
