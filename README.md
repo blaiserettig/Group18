@@ -64,8 +64,6 @@ fn main() -> i32s {
 ```
 
 ### Grammar
-
-```
 ```
 "Entry Point"   → FunctionDec
 Stmt            → Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall | Return
