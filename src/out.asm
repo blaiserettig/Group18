@@ -13,7 +13,7 @@ func_main:
     mov rbp, rsp
     lea rax, [str_0]
     mov qword [rbp-8], rax
-    mov rcx, dword [rbp-8]
+    mov rcx, qword [rbp-8]
     and rsp, -16
     sub rsp, 32
     call puts
@@ -36,5 +36,5 @@ main_entry:
     call ExitProcess
 
 segment .data
-str_1 db `Direct literal print`, 0
 str_0 db `Hello, Noble!`, 0
+str_1 db `Direct literal print`, 0
