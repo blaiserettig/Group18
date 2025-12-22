@@ -8,24 +8,33 @@ extern puts
 
 mainCRTStartup:
     jmp main_entry
+func_main:
+    push rbp
+    mov rbp, rsp
+    lea rax, [str_0]
+    mov qword [rbp-8], rax
+    mov rcx, dword [rbp-8]
+    and rsp, -16
+    sub rsp, 32
+    call puts
+    add rsp, 32
+    lea rcx, [str_1]
+    and rsp, -16
+    sub rsp, 32
+    call puts
+    add rsp, 32
+    mov eax, 0
+    leave
+    ret
+    leave
+    ret
 main_entry:
-    mov eax, 10
-    mov dword [a + 0], eax
-    mov eax, 20
-    mov dword [a + 8], eax
-    mov eax, 30
-    mov dword [a + 16], eax
-    mov ebx, 1
-    movsxd rbx, ebx
-    mov eax, dword [a + rbx * 8]
-    mov dword [x], eax
-    mov eax, dword [x]
+    call func_main
     mov rcx, rax
     and rsp, -16
     sub rsp, 32
     call ExitProcess
-    ret
 
-segment .bss
-x resd 1
-a resd 1
+segment .data
+str_1 db `Direct literal print`, 0
+str_0 db `Hello, Noble!`, 0

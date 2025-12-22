@@ -66,11 +66,14 @@ impl Generator {
 
                 writeln!(writer, "main_entry:").unwrap();
 
-                for stmt in statements {
-                    self.generate_x64(stmt, writer);
-                }
-
-                writeln!(writer, "    ret").unwrap();
+                // call mandatory main fn
+                writeln!(writer, "    call func_main").unwrap();
+                
+                // return value of main is in eax... use it for exit process
+                writeln!(writer, "    mov rcx, rax").unwrap();
+                writeln!(writer, "    and rsp, -16").unwrap();
+                writeln!(writer, "    sub rsp, 32").unwrap();
+                writeln!(writer, "    call ExitProcess").unwrap();
 
                 if !self.global_vars.is_empty() {
                     writeln!(writer, "\nsegment .bss").unwrap();

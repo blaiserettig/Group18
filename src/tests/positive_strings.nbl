@@ -1,0 +1,6 @@
+fn main() -> i32s {
+    string s = "Hello, Noble!";
+    print(s);
+    print("Direct literal print");
+    return 0;
+}

@@ -269,7 +269,6 @@ impl Parser {
     }
 
     fn parse_entry(&mut self) -> ParseTreeNode {
-        self.consume();
 
         let mut entry_node = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolNodeEntryPoint,
@@ -1662,10 +1661,12 @@ impl Parser {
                      panic!("TypeChecker: Mismatched types in declaration of '{}'. Expected {:?}, found {:?}", name, declared_type, actual_type);
                 }
 
+                self.insert_in_scope(name.clone(), VarEntry { var_type: declared_type.clone(), var_value: value_expr.clone() });
+
                 AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration {
                         name,
-                        type_: self.match_type_in_scope(type_node),
+                        type_: declared_type,
                         value: value_expr,
                     },
                     children: vec![],
