@@ -27,6 +27,12 @@ fn main() -> i32s {
     char c = 'a';
     char d = 'b';
 
+    print(is_less_than(c, d));
+
+    print(c);
+
+    print(true);
+
     if is_less_than(c, d) {                      
         return 2;
     } else if is_equal(c, d) {

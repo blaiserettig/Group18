@@ -129,6 +129,30 @@ loop_end_i:
     push rax
     call func_is_less_than
     add rsp, 16
+    mov rdx, rax
+    lea rcx, [fmt_int]
+    and rsp, -16
+    sub rsp, 32
+    call printf
+    add rsp, 32
+    mov rdx, qword [rbp-104]
+    lea rcx, [fmt_int]
+    and rsp, -16
+    sub rsp, 32
+    call printf
+    add rsp, 32
+    mov rdx, 1
+    lea rcx, [fmt_int]
+    and rsp, -16
+    sub rsp, 32
+    call printf
+    add rsp, 32
+    mov eax, dword [rbp-112]
+    push rax
+    mov eax, dword [rbp-104]
+    push rax
+    call func_is_less_than
+    add rsp, 16
     mov eax, eax
     cmp eax, 0
     je else_0
@@ -167,5 +191,5 @@ main_entry:
 
 segment .data
 fmt_int db `%d\n`, 0
-str_0 db `Hello, World!`, 0
 fmt_str db `%s\n`, 0
+str_0 db `Hello, World!`, 0
