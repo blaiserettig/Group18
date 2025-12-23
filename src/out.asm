@@ -1239,20 +1239,20 @@ segment .bss
 array_ptr resq 1
 
 segment .data
-str_true_raw db `true`, 0
 fmt_float db `%f\n`, 0
-str_false db `false\n`, 0
-fmt_float_raw db `%f`, 0
-str_0 db `Testing matrix operations:`, 0
 str_2 db `Identity is symmetric: `, 0
-str_3 db `Trace of matrix A: `, 0
-fmt_int db `%d\n`, 0
 fmt_int_raw db `%d`, 0
-str_false_raw db `false`, 0
 str_1 db `Matrix A * Identity = A: `, 0
+str_true db `true\n`, 0
+str_false_raw db `false`, 0
 fmt_str db `%s\n`, 0
+str_6 db `Max is 9 or less`, 0
+fmt_float_raw db `%f`, 0
+str_false db `false\n`, 0
+fmt_str_raw db `%s`, 0
+str_true_raw db `true`, 0
 str_4 db `Maximum value in matrix A: `, 0
 str_5 db `Max is between 9 and 10`, 0
-fmt_str_raw db `%s`, 0
-str_6 db `Max is 9 or less`, 0
-str_true db `true\n`, 0
+str_3 db `Trace of matrix A: `, 0
+fmt_int db `%d\n`, 0
+str_0 db `Testing matrix operations:`, 0

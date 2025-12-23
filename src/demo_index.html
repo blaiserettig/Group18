@@ -435,15 +435,16 @@
                     const wasmBytes = compile_wasm_g18(textarea.value);
                     const importObject = {
                         env: {
-                            print_int: i => { consoleArea.textContent += i + "\n"; consoleArea.scrollTop = consoleArea.scrollHeight; },
+                            print_int: i => { consoleArea.textContent += i; consoleArea.scrollTop = consoleArea.scrollHeight; },
                             print_str: ptr => {
                                 if (!moduleMemory) return;
                                 const view = new Uint8Array(moduleMemory.buffer, ptr);
                                 let s = "";
                                 for (let i = 0; view[i] !== 0; i++) s += String.fromCharCode(view[i]);
-                                consoleArea.textContent += s + "\n";
+                                consoleArea.textContent += s;
                                 consoleArea.scrollTop = consoleArea.scrollHeight;
                             },
+                            print_float: f => { consoleArea.textContent += f; consoleArea.scrollTop = consoleArea.scrollHeight; },
                             memory: new WebAssembly.Memory({ initial: 1 })
                         }
                     };

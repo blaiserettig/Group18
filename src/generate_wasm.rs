@@ -19,7 +19,8 @@ impl WasmGenerator {
         Self {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
-            string_literals: Vec::new(),
+            // Pre-populate with strings used by codegen to ensure they are accounted for in heap calculation
+            string_literals: vec!["true".to_string(), "false".to_string(), "\n".to_string()],
             _string_counter: 0,
         }
     }
@@ -30,6 +31,7 @@ impl WasmGenerator {
         // Imports
         writeln!(writer, "  (import \"env\" \"print_int\" (func $print_int (param i32)))").unwrap();
         writeln!(writer, "  (import \"env\" \"print_str\" (func $print_str (param i32)))").unwrap();
+        writeln!(writer, "  (import \"env\" \"print_float\" (func $print_float (param f32)))").unwrap();
         writeln!(writer, "  (import \"env\" \"memory\" (memory 1))").unwrap();
 
         if let AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry = &ast_root.symbol {
@@ -157,15 +159,45 @@ impl WasmGenerator {
                 writeln!(writer, "    return").unwrap();
             }
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
-                if name == "print" {
+                if name == "print" || name == "println" {
+                    let is_println = name == "println";
                     for arg in args {
                         let ty = self.get_expr_type(arg);
                         self.generate_expr(arg, writer);
-                        if ty == Type::String {
-                            writeln!(writer, "    call $print_str").unwrap();
-                        } else {
-                            writeln!(writer, "    call $print_int").unwrap();
+                        match ty {
+                            Type::String => {
+                                writeln!(writer, "    call $print_str").unwrap();
+                            }
+                            Type::F32S => {
+                                writeln!(writer, "    call $print_float").unwrap();
+                            }
+                            Type::Bool => {
+                                // Boolean printing: if 1 print "true", else "false"
+                                // We need to handle this carefully.
+                                // generate_expr put 0 or 1 on stack.
+                                // We can use if/else or select.
+                                // Simplest: if (val) { call print("true") } else { call print("false") }
+                                
+                                writeln!(writer, "    if").unwrap();
+                                let true_off = self.get_string_offset("true");
+                                writeln!(writer, "      i32.const {}", true_off).unwrap();
+                                writeln!(writer, "      call $print_str").unwrap();
+                                writeln!(writer, "    else").unwrap();
+                                let false_off = self.get_string_offset("false");
+                                writeln!(writer, "      i32.const {}", false_off).unwrap();
+                                writeln!(writer, "      call $print_str").unwrap();
+                                writeln!(writer, "    end").unwrap();
+                            }
+                            _ => {
+                                // Int, Char (as int)
+                                writeln!(writer, "    call $print_int").unwrap();
+                            }
                         }
+                    }
+                    if is_println {
+                        let nl_off = self.get_string_offset("\n");
+                        writeln!(writer, "    i32.const {}", nl_off).unwrap();
+                        writeln!(writer, "    call $print_str").unwrap();
                     }
                 } else {
                     for arg in args {
@@ -193,7 +225,13 @@ impl WasmGenerator {
                 writeln!(writer, "    i32.mul").unwrap();
                 writeln!(writer, "    i32.add").unwrap();
                 self.generate_expr(value, writer);
-                writeln!(writer, "    i32.store").unwrap();
+                
+                let val_type = self.get_expr_type(value);
+                if val_type == Type::F32S {
+                    writeln!(writer, "    f32.store").unwrap();
+                } else {
+                    writeln!(writer, "    i32.store").unwrap();
+                }
             }
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body } => {
                 for stmt in body {
@@ -240,17 +278,51 @@ impl WasmGenerator {
             Expr::BinaryOp { left, op, right } => {
                 self.generate_expr(left, writer);
                 self.generate_expr(right, writer);
+                
+                let left_type = self.get_expr_type(left);
+                let is_float = left_type == Type::F32S;
+                
                 match op {
-                    BinOpType::Add => writeln!(writer, "    i32.add").unwrap(),
-                    BinOpType::Subtract => writeln!(writer, "    i32.sub").unwrap(),
-                    BinOpType::Multiply => writeln!(writer, "    i32.mul").unwrap(),
-                    BinOpType::Divide => writeln!(writer, "    i32.div_s").unwrap(),
-                    BinOpType::Equal => writeln!(writer, "    i32.eq").unwrap(),
-                    BinOpType::NotEqual => writeln!(writer, "    i32.ne").unwrap(),
-                    BinOpType::LessThan => writeln!(writer, "    i32.lt_s").unwrap(),
-                    BinOpType::LessThanOrEqual => writeln!(writer, "    i32.le_s").unwrap(),
-                    BinOpType::GreaterThan => writeln!(writer, "    i32.gt_s").unwrap(),
-                    BinOpType::GreaterThanOrEqual => writeln!(writer, "    i32.ge_s").unwrap(),
+                    BinOpType::Add => {
+                        if is_float { writeln!(writer, "    f32.add").unwrap(); }
+                        else { writeln!(writer, "    i32.add").unwrap(); }
+                    },
+                    BinOpType::Subtract => {
+                        if is_float { writeln!(writer, "    f32.sub").unwrap(); }
+                        else { writeln!(writer, "    i32.sub").unwrap(); }
+                    },
+                    BinOpType::Multiply => {
+                        if is_float { writeln!(writer, "    f32.mul").unwrap(); }
+                        else { writeln!(writer, "    i32.mul").unwrap(); }
+                    },
+                    BinOpType::Divide => {
+                        if is_float { writeln!(writer, "    f32.div").unwrap(); }
+                        else { writeln!(writer, "    i32.div_s").unwrap(); }
+                    },
+                    BinOpType::Equal => {
+                        if is_float { writeln!(writer, "    f32.eq").unwrap(); }
+                        else { writeln!(writer, "    i32.eq").unwrap(); }
+                    },
+                    BinOpType::NotEqual => {
+                        if is_float { writeln!(writer, "    f32.ne").unwrap(); }
+                        else { writeln!(writer, "    i32.ne").unwrap(); }
+                    },
+                    BinOpType::LessThan => {
+                        if is_float { writeln!(writer, "    f32.lt").unwrap(); }
+                        else { writeln!(writer, "    i32.lt_s").unwrap(); }
+                    },
+                    BinOpType::LessThanOrEqual => {
+                        if is_float { writeln!(writer, "    f32.le").unwrap(); }
+                        else { writeln!(writer, "    i32.le_s").unwrap(); }
+                    },
+                    BinOpType::GreaterThan => {
+                        if is_float { writeln!(writer, "    f32.gt").unwrap(); }
+                        else { writeln!(writer, "    i32.gt_s").unwrap(); }
+                    },
+                    BinOpType::GreaterThanOrEqual => {
+                        if is_float { writeln!(writer, "    f32.ge").unwrap(); }
+                        else { writeln!(writer, "    i32.ge_s").unwrap(); }
+                    },
                 }
             }
             Expr::FunctionCall { name, args } => {
@@ -278,14 +350,26 @@ impl WasmGenerator {
                 writeln!(writer, "    i32.const 4").unwrap();
                 writeln!(writer, "    i32.mul").unwrap();
                 writeln!(writer, "    i32.add").unwrap();
-                writeln!(writer, "    i32.load").unwrap();
+                
+                let array_type = self.get_expr_type(array);
+                let elem_type = if let Type::Array(inner) = array_type {
+                    *inner
+                } else {
+                    Type::I32S
+                };
+
+                if elem_type == Type::F32S {
+                    writeln!(writer, "    f32.load").unwrap();
+                } else {
+                    writeln!(writer, "    i32.load").unwrap();
+                }
             }
             Expr::ArrayLiteral(elements) => {
                 let size = elements.len() * 4;
                 
                 // Save current base_addr to WASM stack
                 writeln!(writer, "    local.get $base_addr").unwrap();
-
+ 
                 // 1. Capture base address
                 writeln!(writer, "    global.get $heap_ptr").unwrap();
                 writeln!(writer, "    local.set $base_addr").unwrap();
@@ -304,7 +388,13 @@ impl WasmGenerator {
                         writeln!(writer, "    i32.add").unwrap();
                     }
                     self.generate_expr(elem, writer);
-                    writeln!(writer, "    i32.store").unwrap();
+                    
+                    let elem_type = self.get_expr_type(elem);
+                    if elem_type == Type::F32S {
+                        writeln!(writer, "    f32.store").unwrap();
+                    } else {
+                        writeln!(writer, "    i32.store").unwrap();
+                    }
                 }
                 
                 // 4. Restore the prev base_addr from the stack while keeping the current base_addr as the result
@@ -313,6 +403,7 @@ impl WasmGenerator {
                 writeln!(writer, "    local.set $base_addr").unwrap();
                 writeln!(writer, "    local.get $tmp_val").unwrap();
             }
+            Expr::Float(f) => writeln!(writer, "    f32.const {}", f).unwrap(),
             _ => { /* More expression types */ }
         }
     }
@@ -476,6 +567,9 @@ impl WasmGenerator {
     fn get_expr_type(&self, expr: &Expr) -> Type {
         match expr {
             Expr::Int(_) => Type::I32S,
+            Expr::Float(_) => Type::F32S,
+            Expr::Bool(_) => Type::Bool,
+            Expr::Char(_) => Type::Char,
             Expr::String(_) => Type::String,
             Expr::Ident(name) => {
                 for scope in self.scopes.iter().rev() {
@@ -486,7 +580,30 @@ impl WasmGenerator {
                 Type::I32S
             }
             Expr::UnaryOp { expr, .. } => self.get_expr_type(expr),
-            _ => Type::I32S, // Simplified
+            Expr::BinaryOp { left, op, .. } => {
+                match op {
+                    BinOpType::Add | BinOpType::Subtract | BinOpType::Multiply | BinOpType::Divide => {
+                        self.get_expr_type(left)
+                    }
+                    _ => Type::Bool, // Comparisons result in Bool
+                }
+            }
+            Expr::ArrayIndex { array, .. } => {
+                let array_type = self.get_expr_type(array);
+                if let Type::Array(inner) = array_type {
+                    *inner
+                } else {
+                    Type::I32S // Fallback, shouldn't happen in valid programs
+                }
+            }
+            Expr::FunctionCall { name, .. } => {
+                if let Some(ret_type) = self.functions.get(name) {
+                    ret_type.clone()
+                } else {
+                    Type::I32S // Default or external functions
+                }
+            }
+            _ => Type::I32S,
         }
     }
 }
