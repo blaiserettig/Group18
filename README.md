@@ -8,6 +8,8 @@
 
 A minimal, educational programming language implemented in Rust that compiles to x86-64 assembly. Group18 (g18) demonstrates the complete pipeline of language implementation, from lexical analysis to code generation.
 
+Try it yourself via the online editor [here](https://blaiserettig.github.io/g18_demo.html).
+
 ## Features
 
 - **Complete Compilation Pipeline**: Lexing → Parsing → AST Generation → x86-64 Code Generation
