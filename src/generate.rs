@@ -271,8 +271,8 @@ mainCRTStartup:
                             }
                             Type::Bool => {
                                 self.generate_expr_into_register(arg, "rax", writer);
-                                let true_key = if is_println { "true\n" } else { "true" };
-                                let false_key = if is_println { "false\n" } else { "false" };
+                                let true_key = "true";
+                                let false_key = "false";
 
                                 let true_label = self.string_literals.get(true_key).unwrap().clone();
                                 let false_label = self.string_literals.get(false_key).unwrap().clone();
