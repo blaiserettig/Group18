@@ -21,6 +21,7 @@ pub struct Generator {
     global_vars: HashSet<String>,
     string_literals: HashMap<String, String>, // content, label
     string_counter: usize,
+    label_counter: usize,
 }
 
 impl Generator {
@@ -32,6 +33,7 @@ impl Generator {
             global_vars: HashSet::new(),
             string_literals: HashMap::new(),
             string_counter: 0,
+            label_counter: 0,
         }
     }
 
@@ -241,6 +243,47 @@ impl Generator {
                 self.match_variable_helper(name, value, writer);
             }
 
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolArrayIndexAssignment {
+                array,
+                index,
+                value,
+            } => {
+                // 1. Eval value into rax
+                self.generate_expr_into_register(value, "rax", writer);
+                writeln!(writer, "    push rax").unwrap();
+
+                // 2. Eval index into rbx
+                self.generate_expr_into_register(index, "ebx", writer);
+                writeln!(writer, "    movsxd rbx, ebx").unwrap();
+                writeln!(writer, "    push rbx").unwrap();
+
+                // 3. Eval base array into rax (address)
+                match array {
+                    Expr::Ident(name) => {
+                        let loc = self.lookup_var(name).location;
+                        match loc {
+                            VariableLocation::Local(off) => {
+                                writeln!(writer, "    mov rax, qword [rbp{0}]", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap();
+                            }
+                            VariableLocation::Global => {
+                                writeln!(writer, "    mov rax, qword [{}]", name).unwrap();
+                            }
+                        }
+                    }
+                    _ => {
+                        self.generate_expr_into_register(array, "rax", writer);
+                    }
+                }
+
+                // 4. Restore index and value
+                writeln!(writer, "    pop rbx").unwrap(); // index
+                writeln!(writer, "    pop rcx").unwrap(); // value
+
+                // 5. Store: [rax + rbx * 8] = rcx
+                // Assuming 64-bit elements for consistency with current array implementation
+                writeln!(writer, "    mov qword [rax + rbx * 8], rcx").unwrap();
+            }
+
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFor {
                 iterator_name,
                 iterator_begin,
@@ -260,8 +303,11 @@ impl Generator {
                         .insert(iterator_name.clone(), GeneratorVarEntry { location: VariableLocation::Local(self.current_stack_offset), type_: Type::I32S });
                 }
 
-                let loop_label = format!("loop_begin_{}", iterator_name);
-                let end_label = format!("loop_end_{}", iterator_name);
+                let id = self.label_counter;
+                self.label_counter += 1;
+
+                let loop_label = format!("loop_begin_{}_{}", iterator_name, id);
+                let end_label = format!("loop_end_{}_{}", iterator_name, id);
 
                 self.generate_expr_into_register(iterator_begin, "eax", writer);
                 
@@ -566,12 +612,8 @@ impl Generator {
         else_body: &Option<Box<AbstractSyntaxTreeNode>>,
         writer: &mut W,
     ) {
-        static mut LABEL_COUNT: usize = 0;
-        let id = unsafe {
-            let current = LABEL_COUNT;
-            LABEL_COUNT += 1;
-            current
-        };
+        let id = self.label_counter;
+        self.label_counter += 1;
 
         let else_label = format!("else_{}", id);
         let end_label = format!("endif_{}", id);

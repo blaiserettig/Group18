@@ -26,11 +26,11 @@ fn main() {
     let show_ast = args.contains(&"--ast".to_string());
 
     let input_file_path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
         .join(filename);
 
     let start_time = Instant::now();
 
+    println!("Reading file from: {:?}", input_file_path);
     let file_contents: String = read_file(input_file_path);
 
     let mut tokenizer = Tokenizer::new(file_contents.clone());

@@ -26,6 +26,11 @@ pub enum AbstractSyntaxTreeSymbol {
         name: String,
         value: Expr,
     },
+    AbstractSyntaxTreeSymbolArrayIndexAssignment {
+        array: Expr,
+        index: Expr,
+        value: Expr,
+    },
     AbstractSyntaxTreeSymbolFor {
         iterator_name: String,
         iterator_begin: Expr,
@@ -1137,12 +1142,17 @@ impl Parser {
                 ident_token.token_type
             )));
         }
-        let ident_terminal = ParseTreeNode {
+        let mut target_node = ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier,
             children: vec![],
             value: ident_token.value.clone(),
         };
         self.consume();
+
+        // Support array indexing: counts[data[i]]
+        while self.current().map(|t| t.token_type) == Some(TokenType::TokenTypeLeftBracket) {
+            target_node = self.parse_array_index_expr(target_node)?;
+        }
 
         let equals_token = self
             .current()
@@ -1178,20 +1188,9 @@ impl Parser {
         };
         self.consume();
 
-        let var_name = ident_terminal
-            .value
-            .as_ref()
-            .expect("Identifier should have a value")
-            .clone();
-        let var_value = self.build_expr(&expr_node).clone();
-        if self.lookup_in_scope(&var_name).is_none() {
-            return Err(self.error_at_current(&format!("Undefined variable {}", var_name)));
-        }
-        self.update_in_scope(&var_name, var_value)?;
-
         Ok(ParseTreeNode {
             symbol: ParseTreeSymbol::ParseTreeSymbolNodeVariableAssignment,
-            children: vec![ident_terminal, equals_terminal, expr_node, semi_terminal],
+            children: vec![target_node, equals_terminal, expr_node, semi_terminal],
             value: None,
         })
     }
@@ -1693,14 +1692,7 @@ impl Parser {
             }
 
             ParseTreeSymbol::ParseTreeSymbolNodeVariableAssignment => {
-                let identifier_node = parse_tree
-                    .children
-                    .iter()
-                    .find(|c| c.symbol == ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier)
-                    .expect("Variable node has no terminal identifier");
-                
-                let name = identifier_node.value.as_ref().unwrap().clone();
-
+                let target_node = &parse_tree.children[0];
                 let expr_node = parse_tree
                     .children
                     .iter()
@@ -1708,33 +1700,60 @@ impl Parser {
                     .expect("Variable node has no expression");
                 
                 let value_expr = self.build_expr(expr_node);
-
                 let actual_type = self.get_expr_type(&value_expr);
-                
-                 let var_type = {
-                    let mut found_type = None;
-                    for scope in self.scopes.iter().rev() {
-                        if let Some(entry) = scope.get(&name) {
-                            found_type = Some(entry.var_type.clone());
-                            break;
+
+                if target_node.symbol == ParseTreeSymbol::ParseTreeSymbolTerminalIdentifier {
+                    let name = target_node.value.as_ref().unwrap().clone();
+                    
+                    let var_type = {
+                        let mut found_type = None;
+                        for scope in self.scopes.iter().rev() {
+                            if let Some(entry) = scope.get(&name) {
+                                found_type = Some(entry.var_type.clone());
+                                break;
+                            }
                         }
-                    }
-                    if found_type.is_none() {
-                        panic!("TypeChecker: Undefined variable '{}' in assignment", name);
-                    }
-                    found_type.unwrap()
-                };
+                        if found_type.is_none() {
+                            panic!("TypeChecker: Undefined variable '{}' in assignment", name);
+                        }
+                        found_type.unwrap()
+                    };
 
-                if var_type != actual_type {
-                    panic!("TypeChecker: Mismatched types in assignment to '{}'. Expected {:?}, found {:?}", name, var_type, actual_type);
-                }
+                    if var_type != actual_type {
+                        panic!("TypeChecker: Mismatched types in assignment to '{}'. Expected {:?}, found {:?}", name, var_type, actual_type);
+                    }
 
-                AbstractSyntaxTreeNode {
-                    symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment {
-                        name,
-                        value: value_expr,
-                    },
-                    children: Vec::new(),
+                    AbstractSyntaxTreeNode {
+                        symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment {
+                            name,
+                            value: value_expr,
+                        },
+                        children: Vec::new(),
+                    }
+                } else if target_node.symbol == ParseTreeSymbol::ParseTreeSymbolNodeArrayIndex {
+                    let array_expr = self.build_inner_primary(&target_node.children[0]);
+                    let index_expr = self.build_expr(&target_node.children[2]);
+                    
+                    let array_type = self.get_expr_type(&array_expr);
+                    let element_type = match array_type {
+                        Type::Array(inner) => *inner,
+                        _ => panic!("TypeChecker: Cannot index into non-array type {:?}", array_type),
+                    };
+
+                    if element_type != actual_type {
+                        panic!("TypeChecker: Mismatched types in array assignment. Expected {:?}, found {:?}", element_type, actual_type);
+                    }
+
+                    AbstractSyntaxTreeNode {
+                        symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolArrayIndexAssignment {
+                            array: array_expr,
+                            index: index_expr,
+                            value: value_expr,
+                        },
+                        children: Vec::new(),
+                    }
+                } else {
+                    panic!("Invalid left-hand side of assignment: {:?}", target_node.symbol);
                 }
             }
 

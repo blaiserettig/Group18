@@ -68,7 +68,7 @@ fn main() -> i32s {
 "Entry Point"   → FunctionDec
 Stmt            → Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall | Return
 VariableDec     → Type Ident "=" Expr ";"
-VariableAsm     → Ident "=" Expr ";"
+VariableAsm     → (Ident | ArrayIndex) "=" Expr ";"
 For             → "for" Ident "in" Int_Lit "to" Int_Lit Block
 If              → "if" Expr Block Else
 Else            → "else" If | "else" Block | ε
