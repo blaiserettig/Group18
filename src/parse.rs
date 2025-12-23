@@ -1779,13 +1779,11 @@ impl Parser {
                     Expr::Int(lit.value.as_ref().unwrap().parse().unwrap())
                 };
 
-                let mut stmt_nodes = Vec::new();
-                self.find_statements(parse_tree, &mut stmt_nodes);
-
-                self.insert_in_scope(iterator_name.clone(), VarEntry { var_type: Type::I32S, var_value: Expr::Int(0) });
                 self.push_scope();
+                self.insert_in_scope(iterator_name.clone(), VarEntry { var_type: Type::I32S, var_value: Expr::Int(0) });
                 
                 let mut stmt_nodes = Vec::new();
+                // The block is at children[6]
                 self.find_statements(&parse_tree.children[6], &mut stmt_nodes);
                 let body: Vec<AbstractSyntaxTreeNode> = stmt_nodes
                     .into_iter()
@@ -2337,9 +2335,12 @@ impl Parser {
     fn find_statements<'a>(&self, node: &'a ParseTreeNode, out: &mut Vec<&'a ParseTreeNode>) {
         if node.symbol == ParseTreeSymbol::ParseTreeSymbolNodeStatement {
             out.push(node);
-        }
-        for child in &node.children {
-            self.find_statements(child, out);
+        } else {
+            // Only recurse if we haven't found a statement yet.
+            // This prevents sub-statements of a statement from being added to the same body level.
+            for child in &node.children {
+                self.find_statements(child, out);
+            }
         }
     }
 }
