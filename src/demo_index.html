@@ -273,8 +273,10 @@
                 <select id="example-select"
                     style="background: #0d1117; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; font-size: 0.8rem; margin-left: 10px;">
                     <option value="Verify Identity Matrix">Verify Identity Matrix</option>
-                    <option value="Placeholder 1">Placeholder 1</option>
-                    <option value="Placeholder 2">Placeholder 2</option>
+                    <option value="Fibonacci and Number Theory">Fibonacci and Number Theory</option>
+                    <option value="Matrix Operations Suite">Matrix Operations Suite</option>
+                    <option value="Searching and Sorting">Searching and Sorting</option>
+                    <option value="String Processing">String Processing</option>
                 </select>
             </div>
             <div class="pane-content">
@@ -352,13 +354,526 @@ fn main() -> i32s {
     return 0;
 }
 `,
-            "Placeholder 1": `fn main() -> i32s {
-    // Placeholder 1
+            "Fibonacci and Number Theory": `fn fibonacci() -> i32s[] {
+    i32s[] fib = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 
+                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    
+    for i in 2 to 20 {
+        fib[i] = fib[i - 1] + fib[i - 2];
+    }
+    
+    return fib;
+}
+
+fn is_fibonacci(i32s num, i32s[] fib_seq) -> bool {
+    for i in 0 to 20 {
+        if fib_seq[i] == num {
+            return true;
+        }
+        if fib_seq[i] > num {
+            return false;
+        }
+    }
+    return false;
+}
+
+fn sum_of_divisors(i32s n) -> i32s {
+    i32s sum = 0;
+    for i in 1 to n {
+        i32s quotient = n / i;
+        i32s product = quotient * i;
+        if product == n {
+            sum = sum + i;
+        }
+    }
+    return sum;
+}
+
+fn is_perfect_number(i32s n) -> bool {
+    i32s sum = sum_of_divisors(n);
+    if sum == n {
+        return true;
+    }
+    return false;
+}
+
+fn gcd(i32s a, i32s b) -> i32s {
+    for i in 0 to 1000 {
+        if b == 0 {
+            return a;
+        }
+        i32s temp = b;
+        i32s quotient = a / b;
+        b = a - (quotient * b);
+        a = temp;
+    }
+    return a;
+}
+
+fn main() -> i32s {
+    println("Fibonacci sequence up to 20:");
+    i32s[] fib_nums = fibonacci();
+    
+    for i in 0 to 20 {
+        print(fib_nums[i]);
+        print("   ");
+    }
+    println("\n");
+    
+    print("Testing if 13 is a Fibonacci number: ");
+    println(is_fibonacci(13, fib_nums));
+    
+    println("");
+
+    print("Testing if 14 is a Fibonacci number: ");
+    println(is_fibonacci(14, fib_nums));
+
+    println("");
+    
+    println("Perfect numbers up to 30:");
+    for i in 1 to 30 {
+        if is_perfect_number(i) {
+            print(i);
+            print("   ");
+        }
+    }
+    println("\n");
+    
+    print("GCD of 48 and 18: ");
+    println(gcd(48, 18));
+    
+    println("");
+
+    print("GCD of 100 and 35: ");
+    println(gcd(100, 35));
+    
     return 0;
 }
 `,
-            "Placeholder 2": `fn main() -> i32s {
-    // Placeholder 2
+            "Matrix Operations Suite": `fn matrix_multiply(f32s[][] a, f32s[][] b, i32s n) -> f32s[][] {
+    f32s[][] result = [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0]
+    ];
+    
+    for i in 0 to n {
+        f32s[] row = [0.0, 0.0, 0.0];
+        for j in 0 to n {
+            f32s sum = 0.0;
+            for k in 0 to n {
+                sum = sum + (a[i][k] * b[k][j]);
+            }
+            row[j] = sum;
+        }
+        result[i] = row;
+    }
+    
+    return result;
+}
+
+fn matrix_transpose(f32s[][] m, i32s n) -> f32s[][] {
+    f32s[][] result = [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0]
+    ];
+    
+    for i in 0 to n {
+        f32s[] row = [0.0, 0.0, 0.0];
+        for j in 0 to n {
+            row[j] = m[j][i];
+        }
+        result[i] = row;
+    }
+    
+    return result;
+}
+
+fn is_symmetric(f32s[][] m, i32s n) -> bool {
+    for i in 0 to n {
+        for j in 0 to n {
+            f32s diff = m[i][j] - m[j][i];
+            if diff > 0.001 {
+                return false;
+            }
+            if diff < -0.001 {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn matrix_trace(f32s[][] m, i32s n) -> f32s {
+    f32s trace = 0.0;
+    for i in 0 to n {
+        trace = trace + m[i][i];
+    }
+    return trace;
+}
+
+fn matrix_max(f32s[][] m, i32s n) -> f32s {
+    f32s max = m[0][0];
+    for i in 0 to n {
+        for j in 0 to n {
+            if m[i][j] > max {
+                max = m[i][j];
+            }
+        }
+    }
+    return max;
+}
+
+fn compare_matrices(f32s[][] a, f32s[][] b, i32s n) -> bool {
+    for i in 0 to n {
+        for j in 0 to n {
+            if a[i][j] != b[i][j] {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn main() -> i32s {
+    i32s size = 3;
+    
+    f32s[][] mat_a = [
+        [1.5, 2.0, 3.0],
+        [4.0, 5.5, 6.0],
+        [7.0, 8.0, 9.5]
+    ];
+    
+    f32s[][] mat_b = [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ];
+    
+    println("Testing matrix operations:");
+    
+    f32s[][] product = matrix_multiply(mat_a, mat_b, size);
+    print("Matrix A * Identity = A: ");
+    println(compare_matrices(product, mat_a, size));
+    
+    f32s[][] transposed = matrix_transpose(mat_b, size);
+    print("Identity is symmetric: ");
+    println(is_symmetric(transposed, size));
+    
+    f32s trace = matrix_trace(mat_a, size);
+    print("Trace of matrix A: ");
+    println(trace);
+    
+    f32s max_val = matrix_max(mat_a, size);
+    print("Maximum value in matrix A: ");
+    println(max_val);
+    
+    if max_val > 9.0 {
+        if max_val <= 10.0 {
+            println("Max is between 9 and 10");
+        }
+    } else {
+        println("Max is 9 or less");
+    }
+    
+    return 0;
+}
+`
+            ,
+            "String Processing": `fn count_char(char[] text, i32s len, char target) -> i32s {
+    i32s count = 0;
+    for i in 0 to len {
+        if text[i] == target {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+fn find_first(char[] text, i32s len, char target) -> i32s {
+    for i in 0 to len {
+        if text[i] == target {
+            return i;
+        }
+    }
+    return -1;
+}
+
+fn find_last(char[] text, i32s len, char target) -> i32s {
+    i32s last = -1;
+    for i in 0 to len {
+        if text[i] == target {
+            last = i;
+        }
+    }
+    return last;
+}
+
+fn reverse_string(char[] text, i32s len) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        result[i] = text[len - 1 - i];
+    }
+    return result;
+}
+
+fn is_palindrome(char[] text, i32s len) -> bool {
+    i32s half = len / 2;
+    for i in 0 to half {
+        if text[i] != text[len - 1 - i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn strings_equal(char[] str1, char[] str2, i32s len) -> bool {
+    for i in 0 to len {
+        if str1[i] != str2[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn copy_substring(char[] source, i32s start, i32s end) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    i32s index = 0;
+    for i in start to end {
+        result[index] = source[i];
+        index = index + 1;
+    }
+    return result;
+}
+
+fn replace_char(char[] text, i32s len, char old, char new) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        if text[i] == old {
+            result[i] = new;
+        } else {
+            result[i] = text[i];
+        }
+    }
+    return result;
+}
+
+fn main() -> i32s {
+    char[] word1 = ['r', 'a', 'c', 'e', 'c', 'a', 'r'];
+    i32s len1 = 7;
+    
+    println("Testing: racecar");
+    println("");
+    
+    print("Is palindrome: ");
+    println(is_palindrome(word1, len1));
+    
+    println("");
+    
+    print("Count of 'a': ");
+    println(count_char(word1, len1, 'a'));
+    
+    println("");
+    
+    print("Count of 'c': ");
+    println(count_char(word1, len1, 'c'));
+    
+    println("");
+    
+    print("First occurrence of 'c': ");
+    println(find_first(word1, len1, 'c'));
+    
+    println("");
+    
+    print("Last occurrence of 'c': ");
+    println(find_last(word1, len1, 'c'));
+    
+    println("");
+    
+    char[] reversed = reverse_string(word1, len1);
+    println("Reversed (should be same):");
+    for i in 0 to len1 {
+        print(reversed[i]);
+    }
+    println("\n");
+    
+    print("Original equals reversed: ");
+    println(strings_equal(word1, reversed, len1));
+    
+    println("");
+    
+    char[] word2 = ['h', 'e', 'l', 'l', 'o'];
+    i32s len2 = 5;
+    
+    print("Is 'hello' a palindrome: ");
+    println(is_palindrome(word2, len2));
+    
+    println("");
+    
+    char[] replaced = replace_char(word2, len2, 'l', 'p');
+    println("Replace 'l' with 'p' in hello:");
+    for i in 0 to len2 {
+        print(replaced[i]);
+    }
+    println("\n");
+    
+    char[] substring = copy_substring(word2, 1, 4);
+    println("Substring from index 1 to 4:");
+    for i in 0 to 3 {
+        print(substring[i]);
+    }
+    println("\n");
+    
+    return 0;
+}
+`
+            ,
+            "Searching and Sorting": `fn bubble_sort(i32s[] arr, i32s len) -> i32s[] {
+    i32s[] result = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for i in 0 to len {
+        result[i] = arr[i];
+    }
+    
+    for i in 0 to len {
+        for j in 0 to len {
+            if j < len - 1 {
+                if result[j] > result[j + 1] {
+                    i32s temp = result[j];
+                    result[j] = result[j + 1];
+                    result[j + 1] = temp;
+                }
+            }
+        }
+    }
+    
+    return result;
+}
+
+fn binary_search(i32s[] arr, i32s len, i32s target) -> i32s {
+    i32s left = 0;
+    i32s right = len - 1;
+    
+    for iter in 0 to 100 {
+        if left > right {
+            return -1;
+        }
+        
+        i32s mid = (left + right) / 2;
+        
+        if arr[mid] == target {
+            return mid;
+        }
+        
+        if arr[mid] < target {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    
+    return -1;
+}
+
+fn find_min_max(i32s[] arr, i32s len) -> i32s[] {
+    i32s[] result = [0, 0];
+    i32s min = arr[0];
+    i32s max = arr[0];
+    
+    for i in 1 to len {
+        if arr[i] < min {
+            min = arr[i];
+        }
+        if arr[i] > max {
+            max = arr[i];
+        }
+    }
+    
+    result[0] = min;
+    result[1] = max;
+    return result;
+}
+
+fn calculate_mean(f32s[] arr, i32s len) -> f32s {
+    f32s sum = 0.0;
+    for i in 0 to len {
+        sum = sum + arr[i];
+    }
+    f32s length = 0.0;
+    for i in 0 to len {
+        length = length + 1.0;
+    }
+    return sum / length;
+}
+
+fn count_in_range(i32s[] arr, i32s len, i32s low, i32s high) -> i32s {
+    i32s count = 0;
+    for i in 0 to len {
+        if arr[i] >= low {
+            if arr[i] <= high {
+                count = count + 1;
+            }
+        }
+    }
+    return count;
+}
+
+fn main() -> i32s {
+    i32s[] numbers = [64, 34, 25, 12, 22, 11, 90, 88, 45, 50];
+    i32s len = 10;
+    
+    println("Original array:");
+    for i in 0 to len {
+        print(numbers[i]);
+        print("   ");
+    }
+    println("\n");
+    
+    i32s[] sorted = bubble_sort(numbers, len);
+    println("Sorted array:");
+    for i in 0 to len {
+        print(sorted[i]);
+        print("   ");
+    }
+    println("\n");
+    
+    i32s[] min_max = find_min_max(numbers, len);
+    print("Min value: ");
+    println(min_max[0]);
+    
+    println("");
+    
+    print("Max value: ");
+    println(min_max[1]);
+    
+    println("");
+    
+    i32s search_target = 45;
+    i32s index = binary_search(sorted, len, search_target);
+    print("Index of 45 in sorted array: ");
+    println(index);
+    
+    println("");
+    
+    i32s not_found = binary_search(sorted, len, 999);
+    print("Index of 999 (not in array): ");
+    println(not_found);
+    
+    println("");
+    
+    i32s count = count_in_range(numbers, len, 20, 60);
+    print("Count of numbers between 20 and 60: ");
+    println(count);
+    
+    println("");
+    
+    f32s[] float_nums = [1.5, 2.5, 3.5, 4.5, 5.5];
+    f32s mean = calculate_mean(float_nums, 5);
+    print("Mean of float array: ");
+    println(mean);
+    
     return 0;
 }
 `
@@ -488,6 +1003,10 @@ fn main() -> i32s {
                             // NEW: Add this function
                             print_float: f => {
                                 consoleArea.textContent += f;
+                                consoleArea.scrollTop = consoleArea.scrollHeight;
+                            },
+                            print_char: c => {
+                                consoleArea.textContent += String.fromCharCode(c);
                                 consoleArea.scrollTop = consoleArea.scrollHeight;
                             },
                             memory: new WebAssembly.Memory({ initial: 1 })

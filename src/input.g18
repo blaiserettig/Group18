@@ -1,86 +1,148 @@
-fn fibonacci() -> i32s[] {
-    i32s[] fib = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 
-                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    
-    for i in 2 to 20 {
-        fib[i] = fib[i - 1] + fib[i - 2];
+fn count_char(char[] text, i32s len, char target) -> i32s {
+    i32s count = 0;
+    for i in 0 to len {
+        if text[i] == target {
+            count = count + 1;
+        }
     }
-    
-    return fib;
+    return count;
 }
 
-fn is_fibonacci(i32s num, i32s[] fib_seq) -> bool {
-    for i in 0 to 20 {
-        if fib_seq[i] == num {
-            return true;
+fn find_first(char[] text, i32s len, char target) -> i32s {
+    for i in 0 to len {
+        if text[i] == target {
+            return i;
         }
-        if fib_seq[i] > num {
+    }
+    return -1;
+}
+
+fn find_last(char[] text, i32s len, char target) -> i32s {
+    i32s last = -1;
+    for i in 0 to len {
+        if text[i] == target {
+            last = i;
+        }
+    }
+    return last;
+}
+
+fn reverse_string(char[] text, i32s len) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        result[i] = text[len - 1 - i];
+    }
+    return result;
+}
+
+fn is_palindrome(char[] text, i32s len) -> bool {
+    i32s half = len / 2;
+    for i in 0 to half {
+        if text[i] != text[len - 1 - i] {
             return false;
         }
     }
-    return false;
+    return true;
 }
 
-fn sum_of_divisors(i32s n) -> i32s {
-    i32s sum = 0;
-    for i in 1 to n {
-        i32s quotient = n / i;
-        i32s product = quotient * i;
-        if product == n {
-            sum = sum + i;
+fn strings_equal(char[] str1, char[] str2, i32s len) -> bool {
+    for i in 0 to len {
+        if str1[i] != str2[i] {
+            return false;
         }
     }
-    return sum;
+    return true;
 }
 
-fn is_perfect_number(i32s n) -> bool {
-    i32s sum = sum_of_divisors(n);
-    i32s double_n = n + n;
-    if sum == double_n {
-        return true;
+fn copy_substring(char[] source, i32s start, i32s end) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    i32s index = 0;
+    for i in start to end {
+        result[index] = source[i];
+        index = index + 1;
     }
-    return false;
+    return result;
 }
 
-fn gcd(i32s a, i32s b) -> i32s {
-    for i in 0 to 1000 {
-        if b == 0 {
-            return a;
+fn replace_char(char[] text, i32s len, char old, char new) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        if text[i] == old {
+            result[i] = new;
+        } else {
+            result[i] = text[i];
         }
-        i32s temp = b;
-        i32s quotient = a / b;
-        b = a - (quotient * b);
-        a = temp;
     }
-    return a;
+    return result;
 }
 
 fn main() -> i32s {
-    print("Fibonacci sequence up to 20:");
-    i32s[] fib_nums = fibonacci();
+    char[] word1 = ['r', 'a', 'c', 'e', 'c', 'a', 'r'];
+    i32s len1 = 7;
     
-    for i in 0 to 20 {
-        print(fib_nums[i]);
+    println("Testing: racecar");
+    println("");
+    
+    print("Is palindrome: ");
+    println(is_palindrome(word1, len1));
+    
+    println("");
+    
+    print("Count of 'a': ");
+    println(count_char(word1, len1, 'a'));
+    
+    println("");
+    
+    print("Count of 'c': ");
+    println(count_char(word1, len1, 'c'));
+    
+    println("");
+    
+    print("First occurrence of 'c': ");
+    println(find_first(word1, len1, 'c'));
+    
+    println("");
+    
+    print("Last occurrence of 'c': ");
+    println(find_last(word1, len1, 'c'));
+    
+    println("");
+    
+    char[] reversed = reverse_string(word1, len1);
+    println("Reversed (should be same):");
+    for i in 0 to len1 {
+        print(reversed[i]);
     }
+    println("\n");
     
-    print("Testing if 13 is a Fibonacci number:");
-    print(is_fibonacci(13, fib_nums));
+    print("Original equals reversed: ");
+    println(strings_equal(word1, reversed, len1));
     
-    print("Testing if 14 is a Fibonacci number:");
-    print(is_fibonacci(14, fib_nums));
+    println("");
     
-    print("Perfect numbers up to 30:");
-    for i in 1 to 30 {
-        if is_perfect_number(i) {
-            print(i);
-        }
+    char[] word2 = ['h', 'e', 'l', 'l', 'o'];
+    i32s len2 = 5;
+    
+    print("Is 'hello' a palindrome: ");
+    println(is_palindrome(word2, len2));
+    
+    println("");
+    
+    char[] replaced = replace_char(word2, len2, 'l', 'p');
+    println("Replace 'l' with 'p' in hello:");
+    for i in 0 to len2 {
+        print(replaced[i]);
     }
+    println("\n");
     
-    print("GCD of 48 and 18:");
-    print(gcd(48, 18));
-    
-    print("GCD of 100 and 35:");
-    print(gcd(100, 35));
+    char[] substring = copy_substring(word2, 1, 4);
+    println("Substring from index 1 to 4:");
+    for i in 0 to 3 {
+        print(substring[i]);
+    }
+    println("\n");
     
     return 0;
 }

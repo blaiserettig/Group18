@@ -86,6 +86,9 @@ mainCRTStartup:
         self.string_literals.insert("%f".to_string(), "fmt_float_raw".to_string());
         self.string_literals.insert("true".to_string(), "str_true_raw".to_string());
         self.string_literals.insert("false".to_string(), "str_false_raw".to_string());
+        
+        self.string_literals.insert("%c\n".to_string(), "fmt_char".to_string());
+        self.string_literals.insert("%c".to_string(), "fmt_char_raw".to_string());
     }
 
     pub fn generate_x64<W: Write>(
@@ -311,9 +314,18 @@ mainCRTStartup:
                                 }
                                 writeln!(writer, "    add rsp, 32").unwrap();
                             }
-                            Type::I32S | Type::Char => {
+                            Type::I32S => {
                                 self.generate_expr_into_register(arg, "rdx", writer);
                                 let fmt_key = if is_println { "%d\n" } else { "%d" };
+                                let fmt_label = self.string_literals.get(fmt_key).unwrap().clone();
+                                writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                writeln!(writer, "    sub rsp, 32").unwrap();
+                                writeln!(writer, "    call printf").unwrap();
+                                writeln!(writer, "    add rsp, 32").unwrap();
+                            }
+                            Type::Char => {
+                                self.generate_expr_into_register(arg, "rdx", writer);
+                                let fmt_key = if is_println { "%c\n" } else { "%c" };
                                 let fmt_label = self.string_literals.get(fmt_key).unwrap().clone();
                                 writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
@@ -689,7 +701,11 @@ mainCRTStartup:
                 } else {
                     // Result is in rax/eax
                     if reg != "eax" && reg != "rax" {
-                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                        if reg.starts_with('e') {
+                             writeln!(writer, "    mov {}, eax", reg).unwrap();
+                        } else {
+                             writeln!(writer, "    mov {}, rax", reg).unwrap();
+                        }
                     } else if reg == "rax" {
                         writeln!(writer, "    mov eax, eax").unwrap(); // Zero-extend eax into rax
                     }
@@ -715,7 +731,11 @@ mainCRTStartup:
                         } else if reg == "eax" {
                             writeln!(writer, "    mov eax, eax").unwrap();
                         } else {
-                            writeln!(writer, "    mov {}, rax", reg).unwrap();
+                            if reg.starts_with('e') {
+                                writeln!(writer, "    mov {}, eax", reg).unwrap();
+                            } else {
+                                writeln!(writer, "    mov {}, rax", reg).unwrap();
+                            }
                         }
                     }
                 }

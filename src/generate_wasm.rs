@@ -32,6 +32,7 @@ impl WasmGenerator {
         writeln!(writer, "  (import \"env\" \"print_int\" (func $print_int (param i32)))").unwrap();
         writeln!(writer, "  (import \"env\" \"print_str\" (func $print_str (param i32)))").unwrap();
         writeln!(writer, "  (import \"env\" \"print_float\" (func $print_float (param f32)))").unwrap();
+        writeln!(writer, "  (import \"env\" \"print_char\" (func $print_char (param i32)))").unwrap();
         writeln!(writer, "  (import \"env\" \"memory\" (memory 1))").unwrap();
 
         if let AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry = &ast_root.symbol {
@@ -188,8 +189,11 @@ impl WasmGenerator {
                                 writeln!(writer, "      call $print_str").unwrap();
                                 writeln!(writer, "    end").unwrap();
                             }
+                            Type::Char => {
+                                writeln!(writer, "    call $print_char").unwrap();
+                            }
                             _ => {
-                                // Int, Char (as int)
+                                // Int
                                 writeln!(writer, "    call $print_int").unwrap();
                             }
                         }
