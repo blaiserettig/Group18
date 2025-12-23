@@ -268,7 +268,15 @@
 
     <main>
         <div class="pane">
-            <div class="pane-header">Input (.g18)</div>
+            <div class="pane-header">
+                Input (.g18)
+                <select id="example-select"
+                    style="background: #0d1117; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; font-size: 0.8rem; margin-left: 10px;">
+                    <option value="Verify Identity Matrix">Verify Identity Matrix</option>
+                    <option value="Placeholder 1">Placeholder 1</option>
+                    <option value="Placeholder 2">Placeholder 2</option>
+                </select>
+            </div>
             <div class="pane-content">
                 <div class="editor-container">
                     <pre id="editor-highlight" aria-hidden="true"></pre>
@@ -287,7 +295,7 @@
                 </div>
             </div>
             <div class="pane-content">
-                <pre id="output">; Compiled assembly will appear here...</pre>
+                <pre id="output">Compiled assembly will appear here...</pre>
             </div>
         </div>
     </main>
@@ -317,19 +325,46 @@
         let currentView = 'asm';
         let moduleMemory = null;
 
-        const initialCode = `fn main() -> i32s {
-    print("Hello from Group18 Wasm!");
-    
-    i32s x = 0;
-    for i in 1 to 10 {
-        x = x + i;
+        const examplePrograms = {
+            "Verify Identity Matrix": `fn is_identity(i32s[][] m) -> bool {
+    for i in 0 to 3 {
+        for j in 0 to 3 {
+            if i == j {
+                if m[i][j] != 1 { return false; }
+            } else {
+                if m[i][j] != 0 { return false; }
+            }
+        }
     }
-    
-    print("Sum of 1..10 is:");
-    print(x);
-    
-    return x;
-}`;
+    return true;
+}
+
+fn main() -> i32s {
+    i32s[][] matrix = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1]
+    ];
+
+    print("Matrix is identity: ");
+    println(is_identity(matrix));
+
+    return 0;
+}
+`,
+            "Placeholder 1": `fn main() -> i32s {
+    // Placeholder 1
+    return 0;
+}
+`,
+            "Placeholder 2": `fn main() -> i32s {
+    // Placeholder 2
+    return 0;
+}
+`
+        };
+
+        const initialCode = examplePrograms["Verify Identity Matrix"];
 
         // Robust Highlighting Logic
         function updateHighlight() {
@@ -343,6 +378,7 @@
             code = code.replace(/'([^'\\]|\\.)*'/g, '<span class="hl-str">$&</span>');
             code = code.replace(/\b(fn|return|if|else|for|in|to|exit)\b/g, '<span class="hl-kw">$1</span>');
             code = code.replace(/\b(print)\b/g, '<span class="hl-fn">$1</span>');
+            code = code.replace(/\b(println)\b/g, '<span class="hl-fn">$1</span>');
             code = code.replace(/\b(i32s|f32s|bool|char|string)\b/g, '<span class="hl-type">$1</span>');
             code = code.replace(/\b(true|false)\b/g, '<span class="hl-atom">$1</span>');
             code = code.replace(/\b\d+(\.\d+)?\b/g, '<span class="hl-num">$&</span>');
@@ -435,16 +471,25 @@
                     const wasmBytes = compile_wasm_g18(textarea.value);
                     const importObject = {
                         env: {
-                            print_int: i => { consoleArea.textContent += i; consoleArea.scrollTop = consoleArea.scrollHeight; },
+                            // Updated: Remove + "\n" to let WASM control newlines
+                            print_int: i => {
+                                consoleArea.textContent += i;
+                                consoleArea.scrollTop = consoleArea.scrollHeight;
+                            },
                             print_str: ptr => {
                                 if (!moduleMemory) return;
                                 const view = new Uint8Array(moduleMemory.buffer, ptr);
                                 let s = "";
                                 for (let i = 0; view[i] !== 0; i++) s += String.fromCharCode(view[i]);
+                                // Updated: Remove + "\n"
                                 consoleArea.textContent += s;
                                 consoleArea.scrollTop = consoleArea.scrollHeight;
                             },
-                            print_float: f => { consoleArea.textContent += f; consoleArea.scrollTop = consoleArea.scrollHeight; },
+                            // NEW: Add this function
+                            print_float: f => {
+                                consoleArea.textContent += f;
+                                consoleArea.scrollTop = consoleArea.scrollHeight;
+                            },
                             memory: new WebAssembly.Memory({ initial: 1 })
                         }
                     };
@@ -473,6 +518,15 @@
                 setTimeout(() => b.textContent = old, 1500);
             });
         };
+
+        const exampleSelect = document.getElementById('example-select');
+        exampleSelect.addEventListener('change', (e) => {
+            const selected = e.target.value;
+            if (examplePrograms[selected]) {
+                textarea.value = examplePrograms[selected];
+                updateHighlight();
+            }
+        });
 
         start();
     </script>

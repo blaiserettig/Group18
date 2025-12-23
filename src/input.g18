@@ -1,129 +1,86 @@
-fn matrix_multiply(f32s[][] a, f32s[][] b, i32s n) -> f32s[][] {
-    f32s[][] result = [
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0]
-    ];
+fn fibonacci() -> i32s[] {
+    i32s[] fib = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 
+                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     
-    for i in 0 to n {
-        f32s[] row = [0.0, 0.0, 0.0];
-        for j in 0 to n {
-            f32s sum = 0.0;
-            for k in 0 to n {
-                sum = sum + (a[i][k] * b[k][j]);
-            }
-            row[j] = sum;
-        }
-        result[i] = row;
+    for i in 2 to 20 {
+        fib[i] = fib[i - 1] + fib[i - 2];
     }
     
-    return result;
+    return fib;
 }
 
-fn matrix_transpose(f32s[][] m, i32s n) -> f32s[][] {
-    f32s[][] result = [
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0]
-    ];
-    
-    for i in 0 to n {
-        f32s[] row = [0.0, 0.0, 0.0];
-        for j in 0 to n {
-            row[j] = m[j][i];
+fn is_fibonacci(i32s num, i32s[] fib_seq) -> bool {
+    for i in 0 to 20 {
+        if fib_seq[i] == num {
+            return true;
         }
-        result[i] = row;
-    }
-    
-    return result;
-}
-
-fn is_symmetric(f32s[][] m, i32s n) -> bool {
-    for i in 0 to n {
-        for j in 0 to n {
-            f32s diff = m[i][j] - m[j][i];
-            if diff > 0.001 {
-                return false;
-            }
-            if diff < -0.001 {
-                return false;
-            }
+        if fib_seq[i] > num {
+            return false;
         }
     }
-    return true;
+    return false;
 }
 
-fn matrix_trace(f32s[][] m, i32s n) -> f32s {
-    f32s trace = 0.0;
-    for i in 0 to n {
-        trace = trace + m[i][i];
-    }
-    return trace;
-}
-
-fn matrix_max(f32s[][] m, i32s n) -> f32s {
-    f32s max = m[0][0];
-    for i in 0 to n {
-        for j in 0 to n {
-            if m[i][j] > max {
-                max = m[i][j];
-            }
+fn sum_of_divisors(i32s n) -> i32s {
+    i32s sum = 0;
+    for i in 1 to n {
+        i32s quotient = n / i;
+        i32s product = quotient * i;
+        if product == n {
+            sum = sum + i;
         }
     }
-    return max;
+    return sum;
 }
 
-fn compare_matrices(f32s[][] a, f32s[][] b, i32s n) -> bool {
-    for i in 0 to n {
-        for j in 0 to n {
-            if a[i][j] != b[i][j] {
-                return false;
-            }
-        }
+fn is_perfect_number(i32s n) -> bool {
+    i32s sum = sum_of_divisors(n);
+    i32s double_n = n + n;
+    if sum == double_n {
+        return true;
     }
-    return true;
+    return false;
+}
+
+fn gcd(i32s a, i32s b) -> i32s {
+    for i in 0 to 1000 {
+        if b == 0 {
+            return a;
+        }
+        i32s temp = b;
+        i32s quotient = a / b;
+        b = a - (quotient * b);
+        a = temp;
+    }
+    return a;
 }
 
 fn main() -> i32s {
-    i32s size = 3;
+    print("Fibonacci sequence up to 20:");
+    i32s[] fib_nums = fibonacci();
     
-    f32s[][] mat_a = [
-        [1.5, 2.0, 3.0],
-        [4.0, 5.5, 6.0],
-        [7.0, 8.0, 9.5]
-    ];
-    
-    f32s[][] mat_b = [
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0]
-    ];
-    
-    println("Testing matrix operations:");
-    
-    f32s[][] product = matrix_multiply(mat_a, mat_b, size);
-    print("Matrix A * Identity = A: ");
-    println(compare_matrices(product, mat_a, size));
-    
-    f32s[][] transposed = matrix_transpose(mat_b, size);
-    print("Identity is symmetric: ");
-    println(is_symmetric(transposed, size));
-    
-    f32s trace = matrix_trace(mat_a, size);
-    print("Trace of matrix A: ");
-    println(trace);
-    
-    f32s max_val = matrix_max(mat_a, size);
-    print("Maximum value in matrix A: ");
-    println(max_val);
-    
-    if max_val > 9.0 {
-        if max_val <= 10.0 {
-            println("Max is between 9 and 10");
-        }
-    } else {
-        println("Max is 9 or less");
+    for i in 0 to 20 {
+        print(fib_nums[i]);
     }
+    
+    print("Testing if 13 is a Fibonacci number:");
+    print(is_fibonacci(13, fib_nums));
+    
+    print("Testing if 14 is a Fibonacci number:");
+    print(is_fibonacci(14, fib_nums));
+    
+    print("Perfect numbers up to 30:");
+    for i in 1 to 30 {
+        if is_perfect_number(i) {
+            print(i);
+        }
+    }
+    
+    print("GCD of 48 and 18:");
+    print(gcd(48, 18));
+    
+    print("GCD of 100 and 35:");
+    print(gcd(100, 35));
     
     return 0;
 }

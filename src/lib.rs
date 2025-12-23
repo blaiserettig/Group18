@@ -59,5 +59,3 @@ pub fn compile_wasm_g18(input: &str) -> Result<Vec<u8>, String> {
     }
     wat::parse_str(&wat).map_err(|e| e.to_string())
 }
-
-mod test_wasm;
