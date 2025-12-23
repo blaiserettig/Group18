@@ -1,14 +1,75 @@
-fn is_identity(i32s[][] m) -> bool {
-    for i in 0 to 3 {
-        for j in 0 to 3 {
-            if i == j {
-                if m[i][j] != 1 {
-                    return false;
-                }
-            } else {
-                if m[i][j] != 0 {
-                    return false;
-                }
+fn matrix_multiply(f32s[][] a, f32s[][] b, i32s n) -> f32s[][] {
+    f32s[][] result = [];
+    
+    for i in 0 to n {
+        f32s[] row = [];
+        for j in 0 to n {
+            f32s sum = 0.0;
+            for k in 0 to n {
+                sum = sum + (a[i][k] * b[k][j]);
+            }
+            row[j] = sum;
+        }
+        result[i] = row;
+    }
+    
+    return result;
+}
+
+fn matrix_transpose(f32s[][] m, i32s n) -> f32s[][] {
+    f32s[][] result = [];
+    
+    for i in 0 to n {
+        f32s[] row = [];
+        for j in 0 to n {
+            row[j] = m[j][i];
+        }
+        result[i] = row;
+    }
+    
+    return result;
+}
+
+fn is_symmetric(f32s[][] m, i32s n) -> bool {
+    for i in 0 to n {
+        for j in 0 to n {
+            f32s diff = m[i][j] - m[j][i];
+            if diff > 0.001 {
+                return false;
+            }
+            if diff < -0.001 {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn matrix_trace(f32s[][] m, i32s n) -> f32s {
+    f32s trace = 0.0;
+    for i in 0 to n {
+        trace = trace + m[i][i];
+    }
+    return trace;
+}
+
+fn matrix_max(f32s[][] m, i32s n) -> f32s {
+    f32s max = m[0][0];
+    for i in 0 to n {
+        for j in 0 to n {
+            if m[i][j] > max {
+                max = m[i][j];
+            }
+        }
+    }
+    return max;
+}
+
+fn compare_matrices(f32s[][] a, f32s[][] b, i32s n) -> bool {
+    for i in 0 to n {
+        for j in 0 to n {
+            if a[i][j] != b[i][j] {
+                return false;
             }
         }
     }
@@ -16,14 +77,45 @@ fn is_identity(i32s[][] m) -> bool {
 }
 
 fn main() -> i32s {
-    i32s[][] matrix = [
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1]
+    i32s size = 3;
+    
+    f32s[][] mat_a = [
+        [1.5, 2.0, 3.0],
+        [4.0, 5.5, 6.0],
+        [7.0, 8.0, 9.5]
     ];
-
-    print("Matrix is identity:");
-    print(is_identity(matrix));
-
+    
+    f32s[][] mat_b = [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ];
+    
+    print("Testing matrix operations:");
+    
+    f32s[][] product = matrix_multiply(mat_a, mat_b, size);
+    print("Matrix A * Identity = A:");
+    print(compare_matrices(product, mat_a, size));
+    
+    f32s[][] transposed = matrix_transpose(mat_b, size);
+    print("Identity is symmetric:");
+    print(is_symmetric(transposed, size));
+    
+    f32s trace = matrix_trace(mat_a, size);
+    print("Trace of matrix A:");
+    print(trace);
+    
+    f32s max_val = matrix_max(mat_a, size);
+    print("Maximum value in matrix A:");
+    print(max_val);
+    
+    if max_val > 9.0 {
+        if max_val <= 10.0 {
+            print("Max is between 9 and 10");
+        }
+    } else {
+        print("Max is 9 or less");
+    }
+    
     return 0;
 }

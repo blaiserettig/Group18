@@ -5,7 +5,7 @@ use std::io::Write;
 pub struct WasmGenerator {
     scopes: Vec<HashMap<String, WasmVarEntry>>,
     functions: HashMap<String, Type>, // return types
-    string_literals: HashMap<String, String>, // content, label
+    string_literals: Vec<String>, // ordered content
     string_counter: usize,
 }
 
@@ -19,7 +19,7 @@ impl WasmGenerator {
         Self {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
-            string_literals: HashMap::new(),
+            string_literals: Vec::new(),
             string_counter: 0,
         }
     }
@@ -33,6 +33,18 @@ impl WasmGenerator {
         writeln!(writer, "  (import \"env\" \"memory\" (memory 1))").unwrap();
 
         if let AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolEntry = &ast_root.symbol {
+            // First pass to collect string literals
+            self.collect_all_strings(ast_root);
+
+            // Global heap pointer initialization
+            let mut string_section_size = 0;
+            for s in &self.string_literals {
+                string_section_size += s.as_bytes().len() + 1;
+            }
+            // Align to 8 bytes just in case
+            let heap_start = (string_section_size + 7) & !7;
+            writeln!(writer, "  (global $heap_ptr (mut i32) (i32.const {}))", heap_start).unwrap();
+
             for child in &ast_root.children {
                 self.generate_node(child, writer);
             }
@@ -40,7 +52,7 @@ impl WasmGenerator {
 
         // Data segment for strings
         let mut offset = 0;
-        for (content, _label) in &self.string_literals {
+        for content in &self.string_literals {
             let bytes = content.as_bytes();
             write!(writer, "  (data (i32.const {}) \"", offset).unwrap();
             for &b in bytes {
@@ -102,6 +114,10 @@ impl WasmGenerator {
                         seen_locals.insert(lname.clone());
                     }
                 }
+                
+                // Scratch local for array construction and intermediate indexing
+                writeln!(writer, "    (local $base_addr i32)").unwrap();
+                writeln!(writer, "    (local $tmp_val i32)").unwrap();
 
                 for stmt in body {
                     self.generate_statement(stmt, writer);
@@ -159,17 +175,26 @@ impl WasmGenerator {
                 }
             }
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolIf { condition, body, else_body } => {
-            self.generate_expr(condition, writer);
-            writeln!(writer, "    if").unwrap();
-            for stmt in body {
-                self.generate_statement(stmt, writer);
+                self.generate_expr(condition, writer);
+                writeln!(writer, "    if").unwrap();
+                for stmt in body {
+                    self.generate_statement(stmt, writer);
+                }
+                if let Some(eb) = else_body {
+                    writeln!(writer, "    else").unwrap();
+                    self.generate_statement(eb, writer);
+                }
+                writeln!(writer, "    end").unwrap();
             }
-            if let Some(eb) = else_body {
-                writeln!(writer, "    else").unwrap();
-                self.generate_statement(eb, writer);
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolArrayIndexAssignment { array, index, value } => {
+                self.generate_expr(array, writer);
+                self.generate_expr(index, writer);
+                writeln!(writer, "    i32.const 4").unwrap();
+                writeln!(writer, "    i32.mul").unwrap();
+                writeln!(writer, "    i32.add").unwrap();
+                self.generate_expr(value, writer);
+                writeln!(writer, "    i32.store").unwrap();
             }
-            writeln!(writer, "    end").unwrap();
-        }
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body } => {
                 for stmt in body {
                     self.generate_statement(stmt, writer);
@@ -181,10 +206,10 @@ impl WasmGenerator {
                 writeln!(writer, "    local.set ${}", iterator_name).unwrap();
                 writeln!(writer, "    loop $loop_{}", iterator_name).unwrap();
                 
-                // Condition: i <= end
+                // Condition: i < end (Group18 'to' is exclusive like x64)
                 writeln!(writer, "    local.get ${}", iterator_name).unwrap();
                 self.generate_expr(iterator_end, writer);
-                writeln!(writer, "    i32.le_s").unwrap();
+                writeln!(writer, "    i32.lt_s").unwrap();
                 
                 writeln!(writer, "    if").unwrap();
             for stmt in body {
@@ -234,6 +259,49 @@ impl WasmGenerator {
                 }
                 writeln!(writer, "    call ${}", name).unwrap();
             }
+            Expr::Bool(b) => writeln!(writer, "    i32.const {}", if *b { 1 } else { 0 }).unwrap(),
+            Expr::Char(c) => writeln!(writer, "    i32.const {}", *c as u32).unwrap(),
+            Expr::ArrayIndex { array, index } => {
+                self.generate_expr(array, writer);
+                self.generate_expr(index, writer);
+                writeln!(writer, "    i32.const 4").unwrap();
+                writeln!(writer, "    i32.mul").unwrap();
+                writeln!(writer, "    i32.add").unwrap();
+                writeln!(writer, "    i32.load").unwrap();
+            }
+            Expr::ArrayLiteral(elements) => {
+                let size = elements.len() * 4;
+                
+                // Save current base_addr to WASM stack
+                writeln!(writer, "    local.get $base_addr").unwrap();
+
+                // 1. Capture base address
+                writeln!(writer, "    global.get $heap_ptr").unwrap();
+                writeln!(writer, "    local.set $base_addr").unwrap();
+                
+                // 2. Advance heap_ptr BEFORE filling elements to avoid clobbering nested arrays
+                writeln!(writer, "    global.get $heap_ptr").unwrap();
+                writeln!(writer, "    i32.const {}", size).unwrap();
+                writeln!(writer, "    i32.add").unwrap();
+                writeln!(writer, "    global.set $heap_ptr").unwrap();
+                
+                // 3. Store elements
+                for (i, elem) in elements.iter().enumerate() {
+                    writeln!(writer, "    local.get $base_addr").unwrap();
+                    if i > 0 {
+                        writeln!(writer, "    i32.const {}", i * 4).unwrap();
+                        writeln!(writer, "    i32.add").unwrap();
+                    }
+                    self.generate_expr(elem, writer);
+                    writeln!(writer, "    i32.store").unwrap();
+                }
+                
+                // 4. Restore the prev base_addr from the stack while keeping the current base_addr as the result
+                writeln!(writer, "    local.get $base_addr").unwrap();
+                writeln!(writer, "    local.set $tmp_val").unwrap();
+                writeln!(writer, "    local.set $base_addr").unwrap();
+                writeln!(writer, "    local.get $tmp_val").unwrap();
+            }
             _ => { /* More expression types */ }
         }
     }
@@ -256,28 +324,102 @@ impl WasmGenerator {
     }
 
     fn get_string_offset(&mut self, s: &str) -> usize {
-        if let Some(_l) = self.string_literals.get(s) {
-            // We need to calculate cumulative offset. Let's do it simply during data segment generation.
-            // For now, let's just use a map to labels and calculate later, 
-            // BUT WAT is easier if we just know the offset now.
-            let mut offset = 0;
-            for (content, _label) in &self.string_literals {
-                if content == s { return offset; }
-                offset += content.as_bytes().len() + 1;
+        let mut offset = 0;
+        for content in &self.string_literals {
+            if content == s {
+                return offset;
             }
-            let label = format!("str_{}", self.string_counter);
-            self.string_counter += 1;
-            self.string_literals.insert(s.to_string(), label);
-            offset
-        } else {
-            let mut offset = 0;
-            for (content, _label) in &self.string_literals {
-                offset += content.as_bytes().len() + 1;
+            offset += content.as_bytes().len() + 1;
+        }
+        // If not found, it must have been missed during pre-scan
+        let off = offset;
+        self.string_literals.push(s.to_string());
+        off
+    }
+
+    fn collect_all_strings(&mut self, node: &AbstractSyntaxTreeNode) {
+        match &node.symbol {
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec { body, .. } => {
+                for stmt in body {
+                    self.collect_all_strings(stmt);
+                }
             }
-            let label = format!("str_{}", self.string_counter);
-            self.string_counter += 1;
-            self.string_literals.insert(s.to_string(), label);
-            offset
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration { value, .. } => {
+                self.collect_strings_in_expr(value);
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableAssignment { value, .. } => {
+                self.collect_strings_in_expr(value);
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(opt_expr) => {
+                if let Some(expr) = opt_expr {
+                    self.collect_strings_in_expr(expr);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { args, .. } => {
+                for arg in args {
+                    self.collect_strings_in_expr(arg);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolIf { condition, body, else_body } => {
+                self.collect_strings_in_expr(condition);
+                for stmt in body {
+                    self.collect_all_strings(stmt);
+                }
+                if let Some(eb) = else_body {
+                    self.collect_all_strings(eb);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolBlock { body } => {
+                for stmt in body {
+                    self.collect_all_strings(stmt);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFor { iterator_begin, iterator_end, body, .. } => {
+                self.collect_strings_in_expr(iterator_begin);
+                self.collect_strings_in_expr(iterator_end);
+                for stmt in body {
+                    self.collect_all_strings(stmt);
+                }
+            }
+            AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolArrayIndexAssignment { array, index, value } => {
+                self.collect_strings_in_expr(array);
+                self.collect_strings_in_expr(index);
+                self.collect_strings_in_expr(value);
+            }
+            _ => {
+                for child in &node.children {
+                    self.collect_all_strings(child);
+                }
+            }
+        }
+    }
+
+    fn collect_strings_in_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::String(s) => {
+                if !self.string_literals.contains(s) {
+                    self.string_literals.push(s.to_string());
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.collect_strings_in_expr(left);
+                self.collect_strings_in_expr(right);
+            }
+            Expr::FunctionCall { args, .. } => {
+                for arg in args {
+                    self.collect_strings_in_expr(arg);
+                }
+            }
+            Expr::ArrayLiteral(elements) => {
+                for elem in elements {
+                    self.collect_strings_in_expr(elem);
+                }
+            }
+            Expr::ArrayIndex { array, index } => {
+                self.collect_strings_in_expr(array);
+                self.collect_strings_in_expr(index);
+            }
+            _ => {}
         }
     }
 
