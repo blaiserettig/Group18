@@ -14,6 +14,8 @@ struct GeneratorVarEntry {
     type_: Type,
 }
 
+const ARRAY_HEAP_SIZE: usize = 1024 * 1024; // 1MB
+
 pub struct Generator {
     scopes: Vec<HashMap<String, GeneratorVarEntry>>,
     functions: HashMap<String, Type>, // return types
@@ -38,16 +40,44 @@ impl Generator {
     }
 
     pub fn generate_boilerplate<W: Write>(&mut self, writer: &mut W) {
+        let stack_heap_size = 1024 * 1024; // 1MB
         write!(
             writer,
-            "{}",
-            "bits 64\ndefault rel\n\nsegment .text\nglobal mainCRTStartup\nextern ExitProcess\nextern puts\nextern printf\n\nmainCRTStartup:\n"
+            "bits 64
+default rel
+
+segment .text
+global mainCRTStartup
+extern ExitProcess
+extern puts
+extern printf
+
+mainCRTStartup:
+    push rbp
+    mov rbp, rsp
+    
+    ; Allocate 1MB on stack for array_heap
+    ; Touch pages to ensure stack is committed (Stack Probe)
+    mov rcx, {}
+    mov rax, 4096
+.probe_loop:
+    sub rsp, rax
+    test [rsp], rsp ; Touch the page
+    sub rcx, rax
+    cmp rcx, 0
+    jg .probe_loop
+    
+    ; Save the start of our stack heap to array_ptr
+    mov [array_ptr], rsp
+",
+            stack_heap_size
         )
         .expect("Unable to write to file.");
 
         // Add format strings to string_literals early
         self.string_literals.insert("%d\n".to_string(), "fmt_int".to_string());
         self.string_literals.insert("%s\n".to_string(), "fmt_str".to_string());
+        self.string_literals.insert("%f\n".to_string(), "fmt_float".to_string());
     }
 
     pub fn generate_x64<W: Write>(
@@ -64,7 +94,7 @@ impl Generator {
                     .filter(|child| matches!(child.symbol, AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec { .. }))
                     .collect();
 
-                let statements: Vec<&AbstractSyntaxTreeNode> = ast_root
+                let _statements: Vec<&AbstractSyntaxTreeNode> = ast_root
                     .children
                     .iter()
                     .filter(|child| !matches!(child.symbol, AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionDec { .. }))
@@ -92,6 +122,10 @@ impl Generator {
                     for var in &self.global_vars {
                         writeln!(writer, "{} resd 1", var).unwrap();
                     }
+                    writeln!(writer, "array_ptr resq 1").unwrap();
+                } else {
+                    writeln!(writer, "\nsegment .bss").unwrap();
+                    writeln!(writer, "array_ptr resq 1").unwrap();
                 }
 
                 if !self.string_literals.is_empty() {
@@ -120,26 +154,78 @@ impl Generator {
                 self.scopes.push(HashMap::new());
                 self.current_stack_offset = 0;
                 let mut total_locals_size = 0;
+
+                // Account for spilled parameters (up to 4) which are stored at [rbp-8], [rbp-16], etc.
+                let spill_count = std::cmp::min(params.len(), 4) as i32;
+                total_locals_size += spill_count * 8;
+
                 for stmt in body {
                     total_locals_size += self.calculate_stack_size(stmt);
+                }
+
+                // Ensure stack is aligned to 16 bytes.
+                // total_locals_size should be multiple of 16 for calls.
+                if total_locals_size % 16 != 0 {
+                    total_locals_size += 16 - (total_locals_size % 16);
                 }
 
                 if total_locals_size > 0 {
                     writeln!(writer, "    sub rsp, {}", total_locals_size).unwrap();
                 }
 
-                let mut param_offset = 16;
-                // params vector is left to right
-                // if pushed R->L, first param is closest to RBP
-                for (param_type, pname) in params {
+                // Windows x64 Calling Convention:
+                // Params 1-4: RCX/XMM0, RDX/XMM1, R8/XMM2, R9/XMM3
+                // Params 5+: stack starting at [RBP + 32 + 16] (32 shadow space + return addr + saved rbp)
+                
+                let mut stack_param_offset = 16 + 32; 
+                for (i, (param_type, pname)) in params.iter().enumerate() {
+                    let offset;
+                    if i < 4 {
+                        self.current_stack_offset -= 8;
+                        offset = self.current_stack_offset;
+                        match i {
+                            0 => {
+                                if matches!(param_type, Type::F32S) {
+                                    writeln!(writer, "    movss dword [rbp{}], xmm0", offset).unwrap();
+                                } else {
+                                    writeln!(writer, "    mov qword [rbp{}], rcx", offset).unwrap();
+                                }
+                            }
+                            1 => {
+                                if matches!(param_type, Type::F32S) {
+                                    writeln!(writer, "    movss dword [rbp{}], xmm1", offset).unwrap();
+                                } else {
+                                    writeln!(writer, "    mov qword [rbp{}], rdx", offset).unwrap();
+                                }
+                            }
+                            2 => {
+                                if matches!(param_type, Type::F32S) {
+                                    writeln!(writer, "    movss dword [rbp{}], xmm2", offset).unwrap();
+                                } else {
+                                    writeln!(writer, "    mov qword [rbp{}], r8", offset).unwrap();
+                                }
+                            }
+                            3 => {
+                                if matches!(param_type, Type::F32S) {
+                                    writeln!(writer, "    movss dword [rbp{}], xmm3", offset).unwrap();
+                                } else {
+                                    writeln!(writer, "    mov qword [rbp{}], r9", offset).unwrap();
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        offset = stack_param_offset as i32;
+                        stack_param_offset += 8;
+                    }
+
                     self.scopes.last_mut().unwrap().insert(
                         pname.clone(),
                         GeneratorVarEntry {
-                            location: VariableLocation::Local(param_offset),
+                            location: VariableLocation::Local(offset),
                             type_: param_type.clone(),
                         },
                     );
-                    param_offset += 8; // Assuming 64-bit/8-byte slots on stack
                 }
 
                 for stmt in body {
@@ -154,30 +240,36 @@ impl Generator {
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
                 if name == "print" {
-                    for arg in args.iter().rev() {
+                    for arg in args {
                         let ty = self.get_expr_type(arg);
                         match ty {
                             Type::String => {
                                 self.generate_expr_into_register(arg, "rcx", writer);
-                                writeln!(writer, "    and rsp, -16").unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
                                 writeln!(writer, "    call puts").unwrap();
                                 writeln!(writer, "    add rsp, 32").unwrap();
                             }
                             Type::I32S | Type::Bool | Type::Char => {
-                                // Use printf with fmt_int
                                 self.generate_expr_into_register(arg, "rdx", writer);
-                                let fmt_label = if let Some(l) = self.string_literals.get("%d\n") { l.clone() } else { "fmt_int".to_string() };
+                                let fmt_label = self.string_literals.get("%d\n").unwrap().clone();
                                 writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
-                                writeln!(writer, "    and rsp, -16").unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
                                 writeln!(writer, "    call printf").unwrap();
                                 writeln!(writer, "    add rsp, 32").unwrap();
                             }
+                            Type::F32S => {
+                                self.generate_expr_into_register(arg, "xmm1", writer);
+                                writeln!(writer, "    cvtss2sd xmm1, xmm1").unwrap(); // printf expects doubles for %f
+                                writeln!(writer, "    movq rdx, xmm1").unwrap();
+                                let fmt_label = self.string_literals.get("%f\n").unwrap().clone();
+                                writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                writeln!(writer, "    sub rsp, 32").unwrap();
+                                writeln!(writer, "    mov eax, 1").unwrap(); // 1 float param
+                                writeln!(writer, "    call printf").unwrap();
+                                writeln!(writer, "    add rsp, 32").unwrap();
+                            }
                             _ => {
-                                // Fallback to puts for pointers
                                 self.generate_expr_into_register(arg, "rcx", writer);
-                                writeln!(writer, "    and rsp, -16").unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
                                 writeln!(writer, "    call puts").unwrap();
                                 writeln!(writer, "    add rsp, 32").unwrap();
@@ -185,24 +277,18 @@ impl Generator {
                         }
                     }
                 } else {
-                    // reg function call
-                    for arg in args.iter().rev() {
-                        self.generate_expr_into_register(arg, "eax", writer);
-                        writeln!(writer, "    push rax").unwrap();
-                    }
-                    
-                    let func_label = format!("func_{}", name);
-                    writeln!(writer, "    call {}", func_label).unwrap();
-                    
-                    if !args.is_empty() {
-                        writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
-                    }
+                    self.generate_function_call(name, args, writer);
                 }
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolReturn(opt_expr) => {
                 if let Some(expr) = opt_expr {
-                    self.generate_expr_into_register(expr, "eax", writer);
+                    let ty = self.get_expr_type(expr);
+                    if matches!(ty, Type::F32S) {
+                        self.generate_expr_into_register(expr, "xmm0", writer);
+                    } else {
+                        self.generate_expr_into_register(expr, "rax", writer);
+                    }
                 }
                 writeln!(writer, "    leave").unwrap();
                 writeln!(writer, "    ret").unwrap();
@@ -248,16 +334,25 @@ impl Generator {
                 index,
                 value,
             } => {
-                // 1. Eval value into rax
-                self.generate_expr_into_register(value, "rax", writer);
+                // 1. Eval Value
+                let value_ty = self.get_expr_type(value);
+                if matches!(value_ty, Type::F32S) {
+                    self.generate_expr_into_register(value, "xmm0", writer);
+                    writeln!(writer, "    movd eax, xmm0").unwrap();
+                } else {
+                    self.generate_expr_into_register(value, "rax", writer);
+                }
+                
                 writeln!(writer, "    push rax").unwrap();
+                writeln!(writer, "    sub rsp, 8").unwrap(); // Align stack
 
-                // 2. Eval index into rbx
+                // 2. Eval Index
                 self.generate_expr_into_register(index, "ebx", writer);
                 writeln!(writer, "    movsxd rbx, ebx").unwrap();
                 writeln!(writer, "    push rbx").unwrap();
+                writeln!(writer, "    sub rsp, 8").unwrap(); // Align stack
 
-                // 3. Eval base array into rax (address)
+                // 3. Eval Array Base
                 match array {
                     Expr::Ident(name) => {
                         let loc = self.lookup_var(name).location;
@@ -275,12 +370,15 @@ impl Generator {
                     }
                 }
 
-                // 4. Restore index and value
-                writeln!(writer, "    pop rbx").unwrap(); // index
-                writeln!(writer, "    pop rcx").unwrap(); // value
+                // 4. Restore Index
+                writeln!(writer, "    add rsp, 8").unwrap();
+                writeln!(writer, "    pop rbx").unwrap();
+                
+                // 5. Restore Value
+                writeln!(writer, "    add rsp, 8").unwrap();
+                writeln!(writer, "    pop rcx").unwrap();
 
-                // 5. Store: [rax + rbx * 8] = rcx
-                // Assuming 64-bit elements for consistency with current array implementation
+                // 6. Store: [rax + rbx * 8] = rcx
                 writeln!(writer, "    mov qword [rax + rbx * 8], rcx").unwrap();
             }
 
@@ -373,15 +471,23 @@ impl Generator {
     ) {
         let location = self.lookup_var(name).location;
         
-        // Evaluate expression into rax
-        self.generate_expr_into_register(value, "rax", writer);
-        
-        match location {
-            VariableLocation::Global => {
-                writeln!(writer, "    mov qword [{}], rax", name).unwrap();
+        // Evaluate expression into rax/xmm0
+        let ty = self.get_expr_type(value);
+        if matches!(ty, Type::F32S) {
+            self.generate_expr_into_register(value, "xmm0", writer);
+            match location {
+                VariableLocation::Global => writeln!(writer, "    movss dword [{}], xmm0", name).unwrap(),
+                VariableLocation::Local(off) => writeln!(writer, "    movss dword [rbp{}], xmm0", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap(),
             }
-            VariableLocation::Local(off) => {
-                writeln!(writer, "    mov qword [rbp{0}], rax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap();
+        } else {
+            self.generate_expr_into_register(value, "rax", writer);
+            match location {
+                VariableLocation::Global => {
+                    writeln!(writer, "    mov qword [{}], rax", name).unwrap();
+                }
+                VariableLocation::Local(off) => {
+                    writeln!(writer, "    mov qword [rbp{0}], rax", if off < 0 { format!("{}", off) } else { format!("+{}", off) }).unwrap();
+                }
             }
         }
     }
@@ -405,30 +511,60 @@ impl Generator {
             Expr::Int(i) => {
                 writeln!(writer, "    mov {}, {}", reg, i).unwrap();
             }
-            Expr::Ident(name) => match self.lookup_var(name).location {
-                VariableLocation::Global => {
-                    if reg.starts_with('e') {
-                        writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap()
-                    } else {
-                        writeln!(writer, "    mov {}, qword [{}]", reg, name).unwrap()
+            Expr::Ident(name) => {
+                let entry = self.lookup_var(name);
+                match entry.location {
+                    VariableLocation::Global => {
+                        if matches!(entry.type_, Type::F32S) {
+                            if reg.starts_with('x') {
+                                writeln!(writer, "    movss {}, dword [{}]", reg, name).unwrap();
+                            } else {
+                                let reg32 = if reg == "rax" { "eax" } else { "eax" };
+                                writeln!(writer, "    mov {}, dword [{}]", reg32, name).unwrap();
+                            }
+                        } else {
+                            if reg.starts_with('e') {
+                                writeln!(writer, "    mov {}, dword [{}]", reg, name).unwrap()
+                            } else {
+                                writeln!(writer, "    mov {}, qword [{}]", reg, name).unwrap()
+                            }
+                        }
                     }
-                }
-                VariableLocation::Local(off) => {
-                    let off_str = if off < 0 {
-                        format!("{}", off)
-                    } else {
-                        format!("+{}", off)
-                    };
-                    if reg.starts_with('e') {
-                        writeln!(writer, "    mov {}, dword [rbp{}]", reg, off_str).unwrap()
-                    } else {
-                        writeln!(writer, "    mov {}, qword [rbp{}]", reg, off_str).unwrap()
+                    VariableLocation::Local(off) => {
+                        let off_str = if off < 0 {
+                            format!("{}", off)
+                        } else {
+                            format!("+{}", off)
+                        };
+                        
+                        if matches!(entry.type_, Type::F32S) {
+                            if reg.starts_with('x') {
+                                writeln!(writer, "    movss {}, dword [rbp{}]", reg, off_str).unwrap()
+                            } else {
+                                // Load 32-bit float bits into integer register
+                                let reg32 = if reg == "rax" { "eax" } else if reg == "rbx" { "ebx" } else if reg == "rcx" { "ecx" } else { "eax" };
+                                writeln!(writer, "    mov {}, dword [rbp{}]", reg32, off_str).unwrap()
+                            }
+                        } else {
+                            if reg.starts_with('x') {
+                                writeln!(writer, "    movd {}, dword [rbp{}]", reg, off_str).unwrap()
+                            } else if reg.starts_with('e') {
+                                writeln!(writer, "    mov {}, dword [rbp{}]", reg, off_str).unwrap()
+                            } else {
+                                writeln!(writer, "    mov {}, qword [rbp{}]", reg, off_str).unwrap()
+                            }
+                        }
                     }
                 }
             },
             Expr::Float(f) => {
                 let bits = f.to_bits();
-                writeln!(writer, "    mov {}, {}", reg, bits).unwrap();
+                if reg.starts_with('x') { // xmm register
+                    writeln!(writer, "    mov eax, {}", bits).unwrap();
+                    writeln!(writer, "    movd {}, eax", reg).unwrap();
+                } else {
+                    writeln!(writer, "    mov {}, {}", reg, bits).unwrap();
+                }
             }
             Expr::Bool(b) => {
                 let val = if *b { 1 } else { 0 };
@@ -448,53 +584,111 @@ impl Generator {
                 };
                 writeln!(writer, "    lea {}, [{}]", reg, label).unwrap();
             }
+            Expr::UnaryOp { op: _, expr } => {
+                let ty = self.get_expr_type(expr);
+                if matches!(ty, Type::F32S) {
+                    self.generate_expr_into_register(expr, "xmm0", writer);
+                    // Negate float: XOR with 0x80000000
+                    writeln!(writer, "    mov eax, 0x80000000").unwrap();
+                    writeln!(writer, "    movd xmm1, eax").unwrap();
+                    writeln!(writer, "    xorps xmm0, xmm1").unwrap();
+                    if reg != "xmm0" {
+                        if reg.starts_with('x') {
+                            writeln!(writer, "    movss {}, xmm0", reg).unwrap();
+                        } else {
+                            writeln!(writer, "    movd {}, xmm0", reg).unwrap();
+                        }
+                    }
+                } else {
+                    self.generate_expr_into_register(expr, reg, writer);
+                    writeln!(writer, "    neg {}", reg).unwrap();
+                }
+            }
             Expr::BinaryOp { left, op, right } => {
                 self.generate_binary_op(left, op, right, writer);
-                if reg != "eax" && reg != "rax" {
-                    writeln!(writer, "    mov {}, eax", reg).unwrap();
-                } else if reg == "rax" {
-                    writeln!(writer, "    mov eax, eax").unwrap(); // Zero-extend eax into rax
+                if reg.starts_with('x') {
+                    // Result is in xmm0
+                    if reg != "xmm0" {
+                        writeln!(writer, "    movss {}, xmm0", reg).unwrap();
+                    }
+                } else {
+                    // Result is in rax/eax
+                    if reg != "eax" && reg != "rax" {
+                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                    } else if reg == "rax" {
+                        writeln!(writer, "    mov eax, eax").unwrap(); // Zero-extend eax into rax
+                    }
                 }
             }
             Expr::FunctionCall { name, args } => {
-                for arg in args.iter().rev() {
-                    self.generate_expr_into_register(arg, "eax", writer);
-                    writeln!(writer, "    push rax").unwrap();
-                }
-                let label = format!("func_{}", name);
-                writeln!(writer, "    call {}", label).unwrap();
-                if !args.is_empty() {
-                    writeln!(writer, "    add rsp, {}", args.len() * 8).unwrap();
-                }
-                if reg != "rax" {
-                    if reg == "eax" {
-                        writeln!(writer, "    mov eax, eax").unwrap();
-                    } else {
-                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                self.generate_function_call(name, args, writer);
+                let ret_ty = self.functions.get(name).cloned().unwrap_or(Type::I32S);
+                if matches!(ret_ty, Type::F32S) {
+                    // Result is in xmm0
+                    if reg != "xmm0" {
+                        if reg.starts_with('x') {
+                            writeln!(writer, "    movss {}, xmm0", reg).unwrap();
+                        } else {
+                            writeln!(writer, "    movd {}, xmm0", reg).unwrap();
+                        }
+                    }
+                } else {
+                    // Result is in rax
+                    if reg != "rax" {
+                        if reg.starts_with('x') {
+                            writeln!(writer, "    movd {}, rax", reg).unwrap();
+                        } else if reg == "eax" {
+                            writeln!(writer, "    mov eax, eax").unwrap();
+                        } else {
+                            writeln!(writer, "    mov {}, rax", reg).unwrap();
+                        }
                     }
                 }
             }
             Expr::ArrayLiteral(elements) => {
                 let size = (elements.len() as i32) * 8;
-                self.current_stack_offset -= size;
-                let addr_offset = self.current_stack_offset;
                 
-                // Initialize elements
+                // 1. Get current array_ptr into rax
+                writeln!(writer, "    mov rax, [array_ptr]").unwrap();
+                writeln!(writer, "    push rax").unwrap();
+                writeln!(writer, "    sub rsp, 8").unwrap(); // Align stack
+
+                // 2. Increment array_ptr
+                writeln!(writer, "    add rax, {}", size).unwrap();
+                writeln!(writer, "    mov [array_ptr], rax").unwrap();
+
+                // 3. Restore array base into rbx
+                writeln!(writer, "    add rsp, 8").unwrap();
+                writeln!(writer, "    pop rbx").unwrap();
+
+                // 4. Initialize elements
                 for (i, elem) in elements.iter().enumerate() {
                     let elem_offset = i as i32 * 8;
-                    self.generate_expr_into_register(elem, "rax", writer);
-                    let final_off = addr_offset + elem_offset;
-                    writeln!(writer, "    mov qword [rbp{}], rax", if final_off < 0 { format!("{}", final_off) } else { format!("+{}", final_off) }).unwrap();
+                    writeln!(writer, "    push rbx").unwrap();
+                    writeln!(writer, "    sub rsp, 8").unwrap(); // Align stack
+                    
+                    let elem_ty = self.get_expr_type(elem);
+                    if matches!(elem_ty, Type::F32S) {
+                        self.generate_expr_into_register(elem, "xmm0", writer);
+                        writeln!(writer, "    movd eax, xmm0").unwrap();
+                    } else {
+                        self.generate_expr_into_register(elem, "rax", writer);
+                    }
+                    
+                    writeln!(writer, "    add rsp, 8").unwrap();
+                    writeln!(writer, "    pop rbx").unwrap(); // Restore array base
+                    writeln!(writer, "    mov qword [rbx + {}], rax", elem_offset).unwrap();
                 }
                 
                 // Return start address in reg
-                writeln!(writer, "    lea rax, [rbp{}]", if addr_offset < 0 { format!("{}", addr_offset) } else { format!("+{}", addr_offset) }).unwrap();
                 if reg != "rax" {
-                    if reg == "eax" {
-                        writeln!(writer, "    mov eax, eax").unwrap();
+                    if reg.starts_with('x') {
+                         writeln!(writer, "    movd {}, rbx", reg).unwrap();
                     } else {
-                        writeln!(writer, "    mov {}, rax", reg).unwrap();
+                         writeln!(writer, "    mov {}, rbx", reg).unwrap();
                     }
+                } else {
+                    writeln!(writer, "    mov rax, rbx").unwrap();
                 }
             }
             Expr::ArrayIndex { array, index } => {
@@ -528,7 +722,9 @@ impl Generator {
                 writeln!(writer, "    pop rbx").unwrap();
                 
                 // 3. Access element: [rax + rbx * 8]
-                if reg.starts_with('e') {
+                if reg.starts_with('x') {
+                    writeln!(writer, "    movss {}, dword [rax + rbx * 8]", reg).unwrap();
+                } else if reg.starts_with('e') {
                     writeln!(writer, "    mov {}, dword [rax + rbx * 8]", reg).unwrap();
                 } else {
                     writeln!(writer, "    mov {}, qword [rax + rbx * 8]", reg).unwrap();
@@ -544,65 +740,191 @@ impl Generator {
         right: &Expr,
         writer: &mut W,
     ) {
-        // Eval left into rax
-        self.generate_expr_into_register(left, "rax", writer);
+        let ty = self.get_expr_type(left);
+        if matches!(ty, Type::F32S) {
+            // Evaluates left into xmm0
+            self.generate_expr_into_register(left, "xmm0", writer);
+            // Push xmm0 - Maintain 16-byte alignment
+            writeln!(writer, "    sub rsp, 16").unwrap();
+            writeln!(writer, "    movss dword [rsp], xmm0").unwrap();
 
-        // Push eax (save left value)
-        writeln!(writer, "    push rax").unwrap();
+            // Eval right into xmm1
+            self.generate_expr_into_register(right, "xmm1", writer);
 
-        // Eval right into rbx
-        self.generate_expr_into_register(right, "rbx", writer);
+            // Restore left into xmm0
+            writeln!(writer, "    movss xmm0, dword [rsp]").unwrap();
+            writeln!(writer, "    add rsp, 16").unwrap();
 
-        // Restore left into eax
-        writeln!(writer, "    pop rax").unwrap();
+            match op {
+                BinOpType::Add => writeln!(writer, "    addss xmm0, xmm1").unwrap(),
+                BinOpType::Subtract => writeln!(writer, "    subss xmm0, xmm1").unwrap(),
+                BinOpType::Multiply => writeln!(writer, "    mulss xmm0, xmm1").unwrap(),
+                BinOpType::Divide => writeln!(writer, "    divss xmm0, xmm1").unwrap(),
+                BinOpType::LessThan => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    setb al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+                BinOpType::LessThanOrEqual => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    setbe al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+                BinOpType::GreaterThan => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    seta al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+                BinOpType::GreaterThanOrEqual => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    setae al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+                BinOpType::Equal => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    sete al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+                BinOpType::NotEqual => {
+                    writeln!(writer, "    ucomiss xmm0, xmm1").unwrap();
+                    writeln!(writer, "    setne al").unwrap(); // ZF=0
+                    writeln!(writer, "    mov ah, al").unwrap();
+                    writeln!(writer, "    setp al").unwrap();  // PF=1 (Unordered)
+                    writeln!(writer, "    or al, ah").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                    return;
+                }
+            }
+            // Result is in xmm0
+        } else {
+            // Eval left into rax
+            self.generate_expr_into_register(left, "rax", writer);
 
-        match op {
-            BinOpType::Add => {
-                writeln!(writer, "    add eax, ebx").unwrap();
-            }
-            BinOpType::Subtract => {
-                writeln!(writer, "    sub eax, ebx").unwrap();
-            }
-            BinOpType::Multiply => {
-                writeln!(writer, "    imul eax, ebx").unwrap();
-            }
-            BinOpType::Divide => {
-                writeln!(writer, "    cdq").unwrap(); // sign-extend eax into edx:eax
-                writeln!(writer, "    idiv ebx").unwrap(); // eax = eax / ebx
-            }
+            // Push eax (save left value)
+            writeln!(writer, "    push rax").unwrap();
 
-            // set eax to 1 or 0 on comparisons
-            BinOpType::LessThan => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    setl al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
-            }
-            BinOpType::LessThanOrEqual => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    setle al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
-            }
-            BinOpType::GreaterThan => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    setg al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
-            }
-            BinOpType::GreaterThanOrEqual => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    setge al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
-            }
-            BinOpType::Equal => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    sete al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
-            }
-            BinOpType::NotEqual => {
-                writeln!(writer, "    cmp eax, ebx").unwrap();
-                writeln!(writer, "    setne al").unwrap();
-                writeln!(writer, "    movzx eax, al").unwrap();
+            // Eval right into rbx
+            self.generate_expr_into_register(right, "rbx", writer);
+
+            // Restore left into eax
+            writeln!(writer, "    pop rax").unwrap();
+
+            match op {
+                BinOpType::Add => {
+                    writeln!(writer, "    add eax, ebx").unwrap();
+                }
+                BinOpType::Subtract => {
+                    writeln!(writer, "    sub eax, ebx").unwrap();
+                }
+                BinOpType::Multiply => {
+                    writeln!(writer, "    imul eax, ebx").unwrap();
+                }
+                BinOpType::Divide => {
+                    writeln!(writer, "    cdq").unwrap(); // sign-extend eax into edx:eax
+                    writeln!(writer, "    idiv ebx").unwrap(); // eax = eax / ebx
+                }
+
+                // set eax to 1 or 0 on comparisons
+                BinOpType::LessThan => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    setl al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
+                BinOpType::LessThanOrEqual => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    setle al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
+                BinOpType::GreaterThan => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    setg al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
+                BinOpType::GreaterThanOrEqual => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    setge al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
+                BinOpType::Equal => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    sete al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
+                BinOpType::NotEqual => {
+                    writeln!(writer, "    cmp eax, ebx").unwrap();
+                    writeln!(writer, "    setne al").unwrap();
+                    writeln!(writer, "    movzx eax, al").unwrap();
+                }
             }
         }
+    }
+
+    fn generate_function_call<W: Write>(&mut self, name: &String, args: &Vec<Expr>, writer: &mut W) {
+        // Windows calling convention: RCX, RDX, R8, R9
+        // 1. Calculate space for args (min 32 bytes shadow space, aligned to 16)
+        let mut arg_space = std::cmp::max(args.len() * 8, 32);
+        if arg_space % 16 != 0 {
+            arg_space += 8;
+        }
+
+        writeln!(writer, "    sub rsp, {}", arg_space).unwrap();
+
+        // 2. Evaluate all args and store in shadow space
+        for (i, arg) in args.iter().enumerate() {
+            let ty = self.get_expr_type(arg);
+            if matches!(ty, Type::F32S) {
+                self.generate_expr_into_register(arg, "xmm0", writer);
+                writeln!(writer, "    movss dword [rsp + {}], xmm0", i * 8).unwrap();
+            } else {
+                self.generate_expr_into_register(arg, "rax", writer);
+                writeln!(writer, "    mov qword [rsp + {}], rax", i * 8).unwrap();
+            }
+        }
+
+        // 3. Load first 4 into registers
+        for i in 0..std::cmp::min(args.len(), 4) {
+            let ty = self.get_expr_type(&args[i]);
+            match i {
+                0 => {
+                    if matches!(ty, Type::F32S) {
+                        writeln!(writer, "    movss xmm0, dword [rsp]").unwrap();
+                    } else {
+                        writeln!(writer, "    mov rcx, qword [rsp]").unwrap();
+                    }
+                }
+                1 => {
+                    if matches!(ty, Type::F32S) {
+                        writeln!(writer, "    movss xmm1, dword [rsp + 8]").unwrap();
+                    } else {
+                        writeln!(writer, "    mov rdx, qword [rsp + 8]").unwrap();
+                    }
+                }
+                2 => {
+                    if matches!(ty, Type::F32S) {
+                        writeln!(writer, "    movss xmm2, dword [rsp + 16]").unwrap();
+                    } else {
+                        writeln!(writer, "    mov r8, qword [rsp + 16]").unwrap();
+                    }
+                }
+                3 => {
+                    if matches!(ty, Type::F32S) {
+                        writeln!(writer, "    movss xmm3, dword [rsp + 24]").unwrap();
+                    } else {
+                        writeln!(writer, "    mov r9, qword [rsp + 24]").unwrap();
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        
+        let func_label = format!("func_{}", name);
+        writeln!(writer, "    call {}", func_label).unwrap();
+        writeln!(writer, "    add rsp, {}", arg_space).unwrap();
     }
 
     fn generate_if<W: Write>(
@@ -726,6 +1048,9 @@ impl Generator {
                 size += self.calculate_expr_stack_size(left);
                 size += self.calculate_expr_stack_size(right);
             }
+            Expr::UnaryOp { expr, .. } => {
+                size += self.calculate_expr_stack_size(expr);
+            }
             Expr::FunctionCall { args, .. } => {
                 for arg in args {
                     size += self.calculate_expr_stack_size(arg);
@@ -760,6 +1085,7 @@ impl Generator {
                     _ => left_type,
                 }
             }
+            Expr::UnaryOp { expr, .. } => self.get_expr_type(expr),
             Expr::FunctionCall { name, .. } => self
                 .functions
                 .get(name)

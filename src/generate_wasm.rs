@@ -6,7 +6,7 @@ pub struct WasmGenerator {
     scopes: Vec<HashMap<String, WasmVarEntry>>,
     functions: HashMap<String, Type>, // return types
     string_literals: Vec<String>, // ordered content
-    string_counter: usize,
+    _string_counter: usize,
 }
 
 struct WasmVarEntry {
@@ -20,7 +20,7 @@ impl WasmGenerator {
             scopes: vec![HashMap::new()],
             functions: HashMap::new(),
             string_literals: Vec::new(),
-            string_counter: 0,
+            _string_counter: 0,
         }
     }
 
@@ -104,7 +104,7 @@ impl WasmGenerator {
                 
                 // Ensure unique local names in Wasm
                 let mut seen_locals = HashSet::new();
-                for (ptype, pname) in params {
+                for (_ptype, pname) in params {
                     seen_locals.insert(pname.clone());
                 }
 
@@ -261,6 +261,17 @@ impl WasmGenerator {
             }
             Expr::Bool(b) => writeln!(writer, "    i32.const {}", if *b { 1 } else { 0 }).unwrap(),
             Expr::Char(c) => writeln!(writer, "    i32.const {}", *c as u32).unwrap(),
+            Expr::UnaryOp { op: _, expr } => {
+                let ty = self.get_expr_type(expr);
+                if ty == Type::F32S {
+                    self.generate_expr(expr, writer);
+                    writeln!(writer, "    f32.neg").unwrap();
+                } else {
+                    writeln!(writer, "    i32.const 0").unwrap();
+                    self.generate_expr(expr, writer);
+                    writeln!(writer, "    i32.sub").unwrap();
+                }
+            }
             Expr::ArrayIndex { array, index } => {
                 self.generate_expr(array, writer);
                 self.generate_expr(index, writer);
@@ -405,6 +416,9 @@ impl WasmGenerator {
                 self.collect_strings_in_expr(left);
                 self.collect_strings_in_expr(right);
             }
+            Expr::UnaryOp { expr, .. } => {
+                self.collect_strings_in_expr(expr);
+            }
             Expr::FunctionCall { args, .. } => {
                 for arg in args {
                     self.collect_strings_in_expr(arg);
@@ -471,6 +485,7 @@ impl WasmGenerator {
                 }
                 Type::I32S
             }
+            Expr::UnaryOp { expr, .. } => self.get_expr_type(expr),
             _ => Type::I32S, // Simplified
         }
     }

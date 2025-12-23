@@ -1,8 +1,12 @@
 fn matrix_multiply(f32s[][] a, f32s[][] b, i32s n) -> f32s[][] {
-    f32s[][] result = [];
+    f32s[][] result = [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0]
+    ];
     
     for i in 0 to n {
-        f32s[] row = [];
+        f32s[] row = [0.0, 0.0, 0.0];
         for j in 0 to n {
             f32s sum = 0.0;
             for k in 0 to n {
@@ -17,10 +21,14 @@ fn matrix_multiply(f32s[][] a, f32s[][] b, i32s n) -> f32s[][] {
 }
 
 fn matrix_transpose(f32s[][] m, i32s n) -> f32s[][] {
-    f32s[][] result = [];
+    f32s[][] result = [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0]
+    ];
     
     for i in 0 to n {
-        f32s[] row = [];
+        f32s[] row = [0.0, 0.0, 0.0];
         for j in 0 to n {
             row[j] = m[j][i];
         }

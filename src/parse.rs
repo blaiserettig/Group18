@@ -73,6 +73,7 @@ pub enum ParseTreeSymbol {
     ParseTreeSymbolNodeComparison,
     ParseTreeSymbolNodeAdd,
     ParseTreeSymbolNodeMul,
+    ParseTreeSymbolNodeUnary,
     ParseTreeSymbolNodePrimary,
     ParseTreeSymbolTerminalExit,
     ParseTreeSymbolTerminalSemicolon,
@@ -149,6 +150,10 @@ pub enum Expr {
         op: BinOpType,
         right: Box<Expr>,
     },
+    UnaryOp {
+        op: UnaryOpType,
+        expr: Box<Expr>,
+    },
     FunctionCall {
         name: String,
         args: Vec<Expr>,
@@ -174,9 +179,14 @@ pub enum BinOpType {
     GreaterThanOrEqual,
 }
 
+#[derive(Debug, Clone)]
+pub enum UnaryOpType {
+    Negate,
+}
+
 struct VarEntry {
     var_type: Type,
-    var_value: Expr,
+    _var_value: Expr,
 }
 
 pub struct Parser {
@@ -477,13 +487,14 @@ impl Parser {
             let mut i = 0;
             while i < param_children.len() {
                 // [TypeNode, IdentNode] pairs
+                // [TypeNode, IdentNode] pairs
                 let type_node = &param_children[i];
                 let ident_node = &param_children[i+1];
                 let type_val = self.match_type_in_scope(type_node);
                 let name = ident_node.value.as_ref().unwrap().clone();
                 // value is unknown at compile time, but we just need entry for lookup
                 // we'll give it a dummy value
-                self.insert_in_scope(name, VarEntry { var_type: type_val, var_value: Expr::Int(0)});
+                self.insert_in_scope(name, VarEntry { var_type: type_val, _var_value: Expr::Int(0)});
                 i += 2;
             }
         }
@@ -835,9 +846,9 @@ impl Parser {
         Ok(left)
     }
 
-    // Mul → Primary (("*" | "/") Primary)*
+    // Mul → Unary (("*" | "/") Unary)*
     fn parse_mul(&mut self) -> Result<ParseTreeNode, String> {
-        let mut left = self.parse_primary()?;
+        let mut left = self.parse_unary()?;
 
         while let Some(token) = self.current() {
             match token.token_type {
@@ -858,7 +869,7 @@ impl Parser {
                     };
                     self.consume();
 
-                    let right = self.parse_primary()?;
+                    let right = self.parse_unary()?;
 
                     left = ParseTreeNode {
                         symbol: ParseTreeSymbol::ParseTreeSymbolNodeMul,
@@ -871,6 +882,27 @@ impl Parser {
         }
 
         Ok(left)
+    }
+
+    // Unary → ("-") Unary | Primary
+    fn parse_unary(&mut self) -> Result<ParseTreeNode, String> {
+        if let Some(token) = self.current() {
+            if token.token_type == TokenType::TokenTypeMinus {
+                let op_terminal = ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolTerminalMinus,
+                    children: Vec::new(),
+                    value: None,
+                };
+                self.consume();
+                let right = self.parse_unary()?;
+                return Ok(ParseTreeNode {
+                    symbol: ParseTreeSymbol::ParseTreeSymbolNodeUnary,
+                    children: vec![op_terminal, right],
+                    value: None,
+                });
+            }
+        }
+        self.parse_primary()
     }
 
     // Primary → Int_Lit | Float_Lit | Bool_Lit | Ident | "(" Expr ")"
@@ -1111,11 +1143,13 @@ impl Parser {
                 var_name
             )));
         }
+        // value is unknown at compile time, but we just need entry for lookup
+        // we'll give it a dummy value
         self.insert_in_scope(
             var_name,
             VarEntry {
                 var_type,
-                var_value,
+                _var_value: var_value,
             },
         );
 
@@ -1375,7 +1409,7 @@ impl Parser {
             var_name,
             VarEntry {
                 var_type,
-                var_value,
+                _var_value: var_value,
             },
         );
 
@@ -1542,6 +1576,7 @@ impl Parser {
                     _ => left_type, // add, sub, mul, div return same type as operands
                 }
             }
+            Expr::UnaryOp { op: _, expr } => self.get_expr_type(expr),
             Expr::FunctionCall { name, args: _ } => {
                 if let Some((_, return_type)) = self.functions.get(name) {
                      return_type.clone()
@@ -1566,7 +1601,26 @@ impl Parser {
             }
         }
     }
+    
+    fn types_compatible(&self, expected: &Type, actual: &Type, actual_expr: &Expr) -> bool {
+        if expected == actual {
+            return true;
+        }
 
+        // Special case: empty array literal can match any array type
+        if let Expr::ArrayLiteral(elements) = actual_expr {
+            if elements.is_empty() {
+                if let Type::Array(_) = expected {
+                    if let Type::Array(_) = actual {
+                         return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+    
     pub fn build_ast(&mut self, parse_tree: &ParseTreeNode) -> AbstractSyntaxTreeNode {
         match parse_tree.symbol {
             ParseTreeSymbol::ParseTreeSymbolNodeEntryPoint => {
@@ -1674,12 +1728,12 @@ impl Parser {
 
                 let declared_type = self.match_type_in_scope(type_node);
                 let actual_type = self.get_expr_type(&value_expr);
-
-                if declared_type != actual_type {
+ 
+                if !self.types_compatible(&declared_type, &actual_type, &value_expr) {
                      panic!("TypeChecker: Mismatched types in declaration of '{}'. Expected {:?}, found {:?}", name, declared_type, actual_type);
                 }
-
-                self.insert_in_scope(name.clone(), VarEntry { var_type: declared_type.clone(), var_value: value_expr.clone() });
+ 
+                self.insert_in_scope(name.clone(), VarEntry { var_type: declared_type.clone(), _var_value: value_expr.clone() });
 
                 AbstractSyntaxTreeNode {
                     symbol: AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolVariableDeclaration {
@@ -1719,7 +1773,7 @@ impl Parser {
                         found_type.unwrap()
                     };
 
-                    if var_type != actual_type {
+                    if !self.types_compatible(&var_type, &actual_type, &value_expr) {
                         panic!("TypeChecker: Mismatched types in assignment to '{}'. Expected {:?}, found {:?}", name, var_type, actual_type);
                     }
 
@@ -1739,8 +1793,8 @@ impl Parser {
                         Type::Array(inner) => *inner,
                         _ => panic!("TypeChecker: Cannot index into non-array type {:?}", array_type),
                     };
-
-                    if element_type != actual_type {
+ 
+                    if !self.types_compatible(&element_type, &actual_type, &value_expr) {
                         panic!("TypeChecker: Mismatched types in array assignment. Expected {:?}, found {:?}", element_type, actual_type);
                     }
 
@@ -1769,18 +1823,11 @@ impl Parser {
 
                 let iterator_name = self.find_terminal(&id_expr).value.as_ref().unwrap().clone();
 
-                let iterator_begin = {
-                    let lit = self.find_terminal(&begin_expr);
-                    Expr::Int(lit.value.as_ref().unwrap().parse().unwrap())
-                };
-
-                let iterator_end = {
-                    let lit = self.find_terminal(&end_expr);
-                    Expr::Int(lit.value.as_ref().unwrap().parse().unwrap())
-                };
+                let iterator_begin = self.build_expr(begin_expr);
+                let iterator_end = self.build_expr(end_expr);
 
                 self.push_scope();
-                self.insert_in_scope(iterator_name.clone(), VarEntry { var_type: Type::I32S, var_value: Expr::Int(0) });
+                self.insert_in_scope(iterator_name.clone(), VarEntry { var_type: Type::I32S, _var_value: Expr::Int(0) });
                 
                 let mut stmt_nodes = Vec::new();
                 // The block is at children[6]
@@ -1948,7 +1995,7 @@ impl Parser {
                         pname.clone(),
                         VarEntry {
                             var_type: ptype.clone(),
-                            var_value: Expr::Int(0),
+                            _var_value: Expr::Int(0),
                         },
                     );
                 }
@@ -2024,7 +2071,7 @@ impl Parser {
                     
                     if let Some(expected_type) = self.return_type_stack.last() {
                          let actual_type = self.get_expr_type(&expr);
-                         if *expected_type != actual_type {
+                         if !self.types_compatible(expected_type, &actual_type, &expr) {
                               panic!("TypeChecker: Return type mismatch. Expected {:?}, found {:?}", expected_type, actual_type);
                          }
                     } else {
@@ -2120,6 +2167,18 @@ impl Parser {
             }
             _ => panic!("Unsupported expression type in primary: {:?}", node.symbol),
         }
+    }
+
+    fn build_unary(&mut self, node: &ParseTreeNode) -> Expr {
+        if node.children.len() == 2 {
+            // Unary op: [op, expr]
+            let expr = self.build_unary(&node.children[1]);
+            return Expr::UnaryOp {
+                op: UnaryOpType::Negate,
+                expr: Box::new(expr),
+            };
+        }
+        self.build_primary(node)
     }
 
     fn build_mul(&mut self, node: &ParseTreeNode) -> Expr {
@@ -2270,7 +2329,7 @@ impl Parser {
     fn update_in_scope(&mut self, name: &str, value: Expr) -> Result<(), String> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(var) = scope.get_mut(name) {
-                var.var_value = value;
+                var._var_value = value;
                 return Ok(());
             }
         }
@@ -2305,6 +2364,7 @@ impl Parser {
         }
         match child.symbol {
             ParseTreeSymbol::ParseTreeSymbolNodePrimary => self.build_primary(child),
+            ParseTreeSymbol::ParseTreeSymbolNodeUnary => self.build_unary(child),
             ParseTreeSymbol::ParseTreeSymbolNodeMul => self.build_mul(child),
             ParseTreeSymbol::ParseTreeSymbolNodeAdd => self.build_add(child),
             ParseTreeSymbol::ParseTreeSymbolNodeComparison => self.build_comparison(child),

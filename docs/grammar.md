@@ -20,7 +20,8 @@ Expr            → Equality
 Equality        → Comparison (("==" | "!=") Comparison)*
 Comparison      → Add (("<" | "<=" | ">" | ">=") Add)*
 Add             → Mul (("+" | "-") Mul)*
-Mul             → Primary (("*" | "/") Primary)*
+Mul             → Unary (("*" | "/") Unary)*
+Unary           → "-" Unary | Primary
 Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | String_Lit | Ident | "(" Expr ")" | ArrayLiteral | ArrayIndex
 ArrayLiteral    → "[" (Expr ("," Expr)*)? "]"
 ArrayIndex      → Ident "[" Expr "]"
