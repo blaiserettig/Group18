@@ -1,36 +1,148 @@
-fn is_less_than(char a, char b) -> bool {
-    return a < b;
+fn count_char(char[] text, i32s len, char target) -> i32s {
+    i32s count = 0;
+    for i in 0 to len {
+        if text[i] == target {
+            count = count + 1;
+        }
+    }
+    return count;
 }
 
-fn is_equal(char a, char b) -> bool {
-    return a == b;
+fn find_first(char[] text, i32s len, char target) -> i32s {
+    for i in 0 to len {
+        if text[i] == target {
+            return i;
+        }
+    }
+    return -1;
+}
+
+fn find_last(char[] text, i32s len, char target) -> i32s {
+    i32s last = -1;
+    for i in 0 to len {
+        if text[i] == target {
+            last = i;
+        }
+    }
+    return last;
+}
+
+fn reverse_string(char[] text, i32s len) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        result[i] = text[len - 1 - i];
+    }
+    return result;
+}
+
+fn is_palindrome(char[] text, i32s len) -> bool {
+    i32s half = len / 2;
+    for i in 0 to half {
+        if text[i] != text[len - 1 - i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn strings_equal(char[] str1, char[] str2, i32s len) -> bool {
+    for i in 0 to len {
+        if str1[i] != str2[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn copy_substring(char[] source, i32s start, i32s end) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    i32s index = 0;
+    for i in start to end {
+        result[index] = source[i];
+        index = index + 1;
+    }
+    return result;
+}
+
+fn replace_char(char[] text, i32s len, char old, char new) -> char[] {
+    char[] result = ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x',
+                     'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'];
+    for i in 0 to len {
+        if text[i] == old {
+            result[i] = new;
+        } else {
+            result[i] = text[i];
+        }
+    }
+    return result;
 }
 
 fn main() -> i32s {
-    i32s x = 0;
-    for i in 0 to 10 {              
-        x = x + i;                  
+    char[] word1 = ['r', 'a', 'c', 'e', 'c', 'a', 'r'];
+    i32s len1 = 7;
+    
+    println("Testing: racecar");
+    println("");
+    
+    print("Is palindrome: ");
+    println(is_palindrome(word1, len1));
+    
+    println("");
+    
+    print("Count of 'a': ");
+    println(count_char(word1, len1, 'a'));
+    
+    println("");
+    
+    print("Count of 'c': ");
+    println(count_char(word1, len1, 'c'));
+    
+    println("");
+    
+    print("First occurrence of 'c': ");
+    println(find_first(word1, len1, 'c'));
+    
+    println("");
+    
+    print("Last occurrence of 'c': ");
+    println(find_last(word1, len1, 'c'));
+    
+    println("");
+    
+    char[] reversed = reverse_string(word1, len1);
+    println("Reversed (should be same):");
+    for i in 0 to len1 {
+        print(reversed[i]);
     }
-
-    {                               
-        bool y = false;             
-        f32s z = 3.14159;
+    println("\n");
+    
+    print("Original equals reversed: ");
+    println(strings_equal(word1, reversed, len1));
+    
+    println("");
+    
+    char[] word2 = ['h', 'e', 'l', 'l', 'o'];
+    i32s len2 = 5;
+    
+    print("Is 'hello' a palindrome: ");
+    println(is_palindrome(word2, len2));
+    
+    println("");
+    
+    char[] replaced = replace_char(word2, len2, 'l', 'p');
+    println("Replace 'l' with 'p' in hello:");
+    for i in 0 to len2 {
+        print(replaced[i]);
     }
-
-    i32s y = ((x + 10) * 5) / 2;    
-
-    i32s[][] z = [[1, 2], [3, 4]];
-
-    print("Hello, World!");
-
-    char c = 'a';
-    char d = 'b';
-
-    if is_less_than(c, d) {                      
-        return 2;
-    } else if is_equal(c, d) {
-        return 1;
-    } else {                        
-        return 0;
+    println("\n");
+    
+    char[] substring = copy_substring(word2, 1, 4);
+    println("Substring from index 1 to 4:");
+    for i in 0 to 3 {
+        print(substring[i]);
     }
+    println("\n");
+    
+    return 0;
 }

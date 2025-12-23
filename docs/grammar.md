@@ -4,7 +4,7 @@
 "Entry Point"   → FunctionDec
 Stmt            → Exit | VariableDec | VariableAsm | For | If | FunctionDec | FunctionCall | Return
 VariableDec     → Type Ident "=" Expr ";"
-VariableAsm     → Ident "=" Expr ";"
+VariableAsm     → (Ident | ArrayIndex) "=" Expr ";"
 For             → "for" Ident "in" Int_Lit "to" Int_Lit Block
 If              → "if" Expr Block Else
 Else            → "else" If | "else" Block | ε
@@ -20,7 +20,8 @@ Expr            → Equality
 Equality        → Comparison (("==" | "!=") Comparison)*
 Comparison      → Add (("<" | "<=" | ">" | ">=") Add)*
 Add             → Mul (("+" | "-") Mul)*
-Mul             → Primary (("*" | "/") Primary)*
+Mul             → Unary (("*" | "/") Unary)*
+Unary           → "-" Unary | Primary
 Primary         → Int_Lit | Float_Lit | Bool_Lit | Char_lit | String_Lit | Ident | "(" Expr ")" | ArrayLiteral | ArrayIndex
 ArrayLiteral    → "[" (Expr ("," Expr)*)? "]"
 ArrayIndex      → Ident "[" Expr "]"

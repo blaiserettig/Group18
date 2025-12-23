@@ -1,0 +1,15 @@
+{
+  "name": "Group18",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "Group18_bg.wasm",
+    "Group18.js",
+    "Group18.d.ts"
+  ],
+  "main": "Group18.js",
+  "types": "Group18.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
