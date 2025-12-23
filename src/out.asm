@@ -1060,7 +1060,8 @@ func_main:
     mov qword [rbx + 16], rax
     mov rax, rbx
     mov qword [rbp-24], rax
-    lea rcx, [str_0]
+    lea rdx, [str_0]
+    mov rcx, rdx
     sub rsp, 32
     call puts
     add rsp, 32
@@ -1077,9 +1078,10 @@ func_main:
     call func_matrix_multiply
     add rsp, 32
     mov qword [rbp-32], rax
-    lea rcx, [str_1]
+    lea rdx, [str_1]
+    lea rcx, [fmt_str_raw]
     sub rsp, 32
-    call puts
+    call printf
     add rsp, 32
     sub rsp, 32
     mov rax, qword [rbp-32]
@@ -1093,10 +1095,15 @@ func_main:
     mov r8, qword [rsp + 16]
     call func_compare_matrices
     add rsp, 32
-    mov rdx, rax
-    lea rcx, [fmt_int]
+    cmp rax, 0
+    jne print_bool_true_16
+    lea rcx, [str_false]
+    jmp print_bool_end_16
+print_bool_true_16:
+    lea rcx, [str_true]
+print_bool_end_16:
     sub rsp, 32
-    call printf
+    call puts
     add rsp, 32
     sub rsp, 32
     mov rax, qword [rbp-24]
@@ -1108,9 +1115,10 @@ func_main:
     call func_matrix_transpose
     add rsp, 32
     mov qword [rbp-40], rax
-    lea rcx, [str_2]
+    lea rdx, [str_2]
+    lea rcx, [fmt_str_raw]
     sub rsp, 32
-    call puts
+    call printf
     add rsp, 32
     sub rsp, 32
     mov rax, qword [rbp-40]
@@ -1121,10 +1129,15 @@ func_main:
     mov rdx, qword [rsp + 8]
     call func_is_symmetric
     add rsp, 32
-    mov rdx, rax
-    lea rcx, [fmt_int]
+    cmp rax, 0
+    jne print_bool_true_17
+    lea rcx, [str_false]
+    jmp print_bool_end_17
+print_bool_true_17:
+    lea rcx, [str_true]
+print_bool_end_17:
     sub rsp, 32
-    call printf
+    call puts
     add rsp, 32
     sub rsp, 32
     mov rax, qword [rbp-16]
@@ -1136,9 +1149,10 @@ func_main:
     call func_matrix_trace
     add rsp, 32
     movss dword [rbp-48], xmm0
-    lea rcx, [str_3]
+    lea rdx, [str_3]
+    lea rcx, [fmt_str_raw]
     sub rsp, 32
-    call puts
+    call printf
     add rsp, 32
     movss xmm1, dword [rbp-48]
     cvtss2sd xmm1, xmm1
@@ -1158,9 +1172,10 @@ func_main:
     call func_matrix_max
     add rsp, 32
     movss dword [rbp-56], xmm0
-    lea rcx, [str_4]
+    lea rdx, [str_4]
+    lea rcx, [fmt_str_raw]
     sub rsp, 32
-    call puts
+    call printf
     add rsp, 32
     movss xmm1, dword [rbp-56]
     cvtss2sd xmm1, xmm1
@@ -1181,7 +1196,7 @@ func_main:
     seta al
     movzx eax, al
     cmp eax, 0
-    je else_16
+    je else_18
     movss xmm0, dword [rbp-56]
     sub rsp, 16
     movss dword [rsp], xmm0
@@ -1193,19 +1208,21 @@ func_main:
     setbe al
     movzx eax, al
     cmp eax, 0
-    je endif_17
-    lea rcx, [str_5]
+    je endif_19
+    lea rdx, [str_5]
+    mov rcx, rdx
     sub rsp, 32
     call puts
     add rsp, 32
-endif_17:
-    jmp endif_16
-else_16:
-    lea rcx, [str_6]
+endif_19:
+    jmp endif_18
+else_18:
+    lea rdx, [str_6]
+    mov rcx, rdx
     sub rsp, 32
     call puts
     add rsp, 32
-endif_16:
+endif_18:
     mov rax, 0
     leave
     ret
@@ -1222,13 +1239,20 @@ segment .bss
 array_ptr resq 1
 
 segment .data
-fmt_int db `%d\n`, 0
-str_5 db `Max is between 9 and 10`, 0
-str_1 db `Matrix A * Identity = A:`, 0
-str_2 db `Identity is symmetric:`, 0
-str_0 db `Testing matrix operations:`, 0
-str_4 db `Maximum value in matrix A:`, 0
-str_6 db `Max is 9 or less`, 0
-fmt_str db `%s\n`, 0
+str_true db `true\n`, 0
+str_3 db `Trace of matrix A: `, 0
+fmt_int_raw db `%d`, 0
 fmt_float db `%f\n`, 0
-str_3 db `Trace of matrix A:`, 0
+str_5 db `Max is between 9 and 10`, 0
+str_0 db `Testing matrix operations:`, 0
+str_false db `false\n`, 0
+fmt_str db `%s\n`, 0
+str_1 db `Matrix A * Identity = A: `, 0
+str_true_raw db `true`, 0
+str_4 db `Maximum value in matrix A: `, 0
+str_6 db `Max is 9 or less`, 0
+fmt_int db `%d\n`, 0
+str_false_raw db `false`, 0
+str_2 db `Identity is symmetric: `, 0
+fmt_str_raw db `%s`, 0
+fmt_float_raw db `%f`, 0

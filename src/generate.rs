@@ -78,6 +78,14 @@ mainCRTStartup:
         self.string_literals.insert("%d\n".to_string(), "fmt_int".to_string());
         self.string_literals.insert("%s\n".to_string(), "fmt_str".to_string());
         self.string_literals.insert("%f\n".to_string(), "fmt_float".to_string());
+        self.string_literals.insert("true\n".to_string(), "str_true".to_string());
+        self.string_literals.insert("false\n".to_string(), "str_false".to_string());
+
+        self.string_literals.insert("%d".to_string(), "fmt_int_raw".to_string());
+        self.string_literals.insert("%s".to_string(), "fmt_str_raw".to_string());
+        self.string_literals.insert("%f".to_string(), "fmt_float_raw".to_string());
+        self.string_literals.insert("true".to_string(), "str_true_raw".to_string());
+        self.string_literals.insert("false".to_string(), "str_false_raw".to_string());
     }
 
     pub fn generate_x64<W: Write>(
@@ -239,19 +247,74 @@ mainCRTStartup:
             }
 
             AbstractSyntaxTreeSymbol::AbstractSyntaxTreeSymbolFunctionCall { name, args } => {
-                if name == "print" {
+                if name == "print" || name == "println" {
+                    let is_println = name == "println";
                     for arg in args {
                         let ty = self.get_expr_type(arg);
                         match ty {
                             Type::String => {
-                                self.generate_expr_into_register(arg, "rcx", writer);
+                                self.generate_expr_into_register(arg, "rdx", writer); // rdx for printf argument
+                                if is_println {
+                                    // println for string: use puts which takes rcx
+                                    writeln!(writer, "    mov rcx, rdx").unwrap(); 
+                                    writeln!(writer, "    sub rsp, 32").unwrap();
+                                    writeln!(writer, "    call puts").unwrap();
+                                    writeln!(writer, "    add rsp, 32").unwrap();
+                                } else {
+                                    // print for string: use printf("%s")
+                                    let fmt_label = self.string_literals.get("%s").unwrap().clone();
+                                    writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                    writeln!(writer, "    sub rsp, 32").unwrap();
+                                    writeln!(writer, "    call printf").unwrap();
+                                    writeln!(writer, "    add rsp, 32").unwrap();
+                                }
+                            }
+                            Type::Bool => {
+                                self.generate_expr_into_register(arg, "rax", writer);
+                                let true_key = if is_println { "true\n" } else { "true" };
+                                let false_key = if is_println { "false\n" } else { "false" };
+
+                                let true_label = self.string_literals.get(true_key).unwrap().clone();
+                                let false_label = self.string_literals.get(false_key).unwrap().clone();
+                                
+                                let label_id = self.label_counter;
+                                self.label_counter += 1;
+                                let true_jump_label = format!("print_bool_true_{}", label_id);
+                                let end_bool_label = format!("print_bool_end_{}", label_id);
+
+                                writeln!(writer, "    cmp rax, 0").unwrap();
+                                writeln!(writer, "    jne {}", true_jump_label).unwrap();
+                                writeln!(writer, "    lea rcx, [{}]", false_label).unwrap();
+                                writeln!(writer, "    jmp {}", end_bool_label).unwrap();
+                                writeln!(writer, "{}:", true_jump_label).unwrap();
+                                writeln!(writer, "    lea rcx, [{}]", true_label).unwrap();
+                                writeln!(writer, "{}:", end_bool_label).unwrap();
+
                                 writeln!(writer, "    sub rsp, 32").unwrap();
-                                writeln!(writer, "    call puts").unwrap();
+                                // bool strings behave like normal strings
+                                if is_println {
+                                    writeln!(writer, "    call puts").unwrap();
+                                } else {
+                                     // For 'print', we used printf for strings above, 
+                                     // but here we have the address of "true" or "false" in rcx.
+                                     // If "true" literal has no newline, puts adds one? No, puts always adds newline.
+                                     // So if is_println=false, we MUST use printf("%s", rcx) OR define raw strings without newlines and pass them to printf?
+                                     // Ah, puts takes a char* and prints it + newline.
+                                     // printf("%s", str) prints str.
+                                     
+                                     // Here rcx holds the address of the string literal ("true" or "false" without newline)
+                                     // We need to move rcx to rdx (arg 2) and load "%s" format into rcx (arg 1)
+                                     writeln!(writer, "    mov rdx, rcx").unwrap();
+                                     let fmt_label = self.string_literals.get("%s").unwrap().clone();
+                                     writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                     writeln!(writer, "    call printf").unwrap();
+                                }
                                 writeln!(writer, "    add rsp, 32").unwrap();
                             }
-                            Type::I32S | Type::Bool | Type::Char => {
+                            Type::I32S | Type::Char => {
                                 self.generate_expr_into_register(arg, "rdx", writer);
-                                let fmt_label = self.string_literals.get("%d\n").unwrap().clone();
+                                let fmt_key = if is_println { "%d\n" } else { "%d" };
+                                let fmt_label = self.string_literals.get(fmt_key).unwrap().clone();
                                 writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
                                 writeln!(writer, "    call printf").unwrap();
@@ -261,7 +324,8 @@ mainCRTStartup:
                                 self.generate_expr_into_register(arg, "xmm1", writer);
                                 writeln!(writer, "    cvtss2sd xmm1, xmm1").unwrap(); // printf expects doubles for %f
                                 writeln!(writer, "    movq rdx, xmm1").unwrap();
-                                let fmt_label = self.string_literals.get("%f\n").unwrap().clone();
+                                let fmt_key = if is_println { "%f\n" } else { "%f" };
+                                let fmt_label = self.string_literals.get(fmt_key).unwrap().clone();
                                 writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
                                 writeln!(writer, "    sub rsp, 32").unwrap();
                                 writeln!(writer, "    mov eax, 1").unwrap(); // 1 float param
@@ -269,10 +333,21 @@ mainCRTStartup:
                                 writeln!(writer, "    add rsp, 32").unwrap();
                             }
                             _ => {
-                                self.generate_expr_into_register(arg, "rcx", writer);
-                                writeln!(writer, "    sub rsp, 32").unwrap();
-                                writeln!(writer, "    call puts").unwrap();
-                                writeln!(writer, "    add rsp, 32").unwrap();
+                                // Default fallback to puts (println behavior) or just print string?
+                                // Let's treat like String
+                                self.generate_expr_into_register(arg, "rdx", writer);
+                                if is_println {
+                                    writeln!(writer, "    mov rcx, rdx").unwrap(); 
+                                    writeln!(writer, "    sub rsp, 32").unwrap();
+                                    writeln!(writer, "    call puts").unwrap();
+                                    writeln!(writer, "    add rsp, 32").unwrap();
+                                } else {
+                                    let fmt_label = self.string_literals.get("%s").unwrap().clone();
+                                    writeln!(writer, "    lea rcx, [{}]", fmt_label).unwrap();
+                                    writeln!(writer, "    sub rsp, 32").unwrap();
+                                    writeln!(writer, "    call printf").unwrap();
+                                    writeln!(writer, "    add rsp, 32").unwrap();
+                                }
                             }
                         }
                     }
